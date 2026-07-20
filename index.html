@@ -1,0 +1,118 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>레이블링 검수 보드</title>
+<style>
+:root{--bg:#f5f7fa;--surface:#fff;--surface-2:#eef1f6;--ink:#1a2030;--ink-soft:#586178;--ink-faint:#8a93a8;--line:#e0e5ee;--line-soft:#eaeef4;--accent:#3b6ea5;--ok:#1f8a70;--okbg:#e3f3ec;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+@media(prefers-color-scheme:dark){:root{--bg:#0e131d;--surface:#151b28;--surface-2:#1a2130;--ink:#e6ebf4;--ink-soft:#98a3ba;--ink-faint:#6b7488;--line:#28313f;--line-soft:#202834;--accent:#6ea3d8;--ok:#48c6a2;--okbg:#12312a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:15px;line-height:1.5}
+.wrap{max-width:860px;margin:0 auto;padding:24px 18px 60px}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--ink-faint);font-size:13px;margin-bottom:20px}
+.who{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:22px}
+.who .lbl{font-size:13px;color:var(--ink-soft);margin-right:4px}
+.rv{font-size:14px;padding:7px 16px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink-soft);cursor:pointer}
+.rv[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+h2{font-size:14px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.04em;margin:26px 0 10px}
+.card{display:flex;align-items:center;gap:14px;padding:13px 16px;border:1px solid var(--line);border-radius:11px;background:var(--surface);text-decoration:none;color:inherit;margin-bottom:9px}
+.card:hover{border-color:var(--accent)}
+.card.now{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.card.done{opacity:.62}
+.ord{font-family:var(--mono);font-size:13px;color:var(--ink-faint);width:26px;flex-shrink:0}
+.cmid{flex:1;min-width:0}
+.clabel{font-weight:600;font-size:15px}.clabel .nowtag{color:var(--accent);font-size:12px;margin-left:8px}
+.cbarwrap{height:7px;background:var(--surface-2);border-radius:4px;margin-top:7px;overflow:hidden}
+.cbar{height:100%;background:var(--accent);width:0;transition:width .3s}
+.cbar.full{background:var(--ok)}
+.cnum{font-family:var(--mono);font-size:13px;color:var(--ink-soft);width:96px;text-align:right;flex-shrink:0}
+.cnum b{color:var(--ink)}
+.hint{color:var(--ink-faint);font-size:12px}
+table.team{border-collapse:collapse;width:100%;font-size:13px;margin-top:4px}
+table.team th,table.team td{padding:6px 8px;border-bottom:1px solid var(--line-soft);text-align:right}
+table.team th{color:var(--ink-faint);font-weight:600;font-size:11px;text-transform:uppercase}
+table.team td.l,table.team th.l{text-align:left;font-family:var(--mono)}
+.foot{margin-top:30px;color:var(--ink-faint);font-size:12px;border-top:1px solid var(--line-soft);padding-top:14px}
+.empty{color:var(--ink-faint);padding:30px 0;text-align:center}
+</style></head><body><div class="wrap">
+<h1>레이블링 검수 보드</h1>
+<div class="sub">카테고리를 순서대로 검수하세요. 저장은 자동으로 DB에 반영됩니다.</div>
+<div class="who" id="who"><span class="lbl">검수자</span></div>
+<div id="mine"><div class="empty">위에서 본인 이름을 선택하세요.</div></div>
+<div id="teamwrap" hidden><h2>팀 전체 진행률</h2><div id="team"></div></div>
+<div class="foot" id="foot"></div>
+</div>
+<script>
+var M={"supabase": {"url": "https://qnhwcwsizommxuqfpalo.supabase.co", "key": "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"}, "categories": [{"slug": "c1", "label": "3.1.2 (패션렌즈_의류/잡화)", "norm": "3.1.2(패션렌즈_의류/잡화)"}, {"slug": "c2", "label": "2.1.1", "norm": "2.1.1"}, {"slug": "c3", "label": "2.1.1 (출산/유아동)", "norm": "2.1.1(출산/유아동)"}, {"slug": "c4", "label": "2.1.1.2 (출산/유아동)", "norm": "2.1.1.2(출산/유아동)"}, {"slug": "c5", "label": "2.1.2 (출산/유아동)", "norm": "2.1.2(출산/유아동)"}, {"slug": "c6", "label": "2.2.1 (뷰티)", "norm": "2.2.1(뷰티)"}, {"slug": "c7", "label": "2.2.1 (영양제)", "norm": "2.2.1(영양제)"}], "reviewers": [{"name": "김민지", "slug": "r1", "totals": {"c1": 125, "c2": 151, "c3": 72, "c4": 70, "c5": 158, "c6": 145, "c7": 115}}, {"name": "유다연", "slug": "r2", "totals": {"c1": 81, "c2": 147, "c3": 68, "c4": 67, "c5": 147, "c6": 152, "c7": 114}}, {"name": "이지나", "slug": "r3", "totals": {"c1": 91, "c2": 149, "c3": 80, "c4": 84, "c5": 143, "c6": 149, "c7": 120}}, {"name": "조승현", "slug": "r4", "totals": {"c1": 171, "c2": 153, "c3": 70, "c4": 67, "c5": 146, "c6": 146, "c7": 105}}]};
+var SB=M.supabase, CATS=M.categories, RVS=M.reviewers;
+function norm(s){return String(s||'').replace(/\s+/g,'');}
+var NORM2SLUG={};CATS.forEach(function(c){NORM2SLUG[c.norm]=c.slug;});
+var curSlug=null;
+try{curSlug=localStorage.getItem('labeling_rv')||null;}catch(e){}
+
+var whoEl=document.getElementById('who');
+RVS.forEach(function(r){
+  var b=document.createElement('button');b.className='rv';b.textContent=r.name;
+  b.setAttribute('aria-pressed',r.slug===curSlug?'true':'false');
+  b.onclick=function(){curSlug=r.slug;try{localStorage.setItem('labeling_rv',r.slug);}catch(e){}
+    Array.prototype.forEach.call(whoEl.querySelectorAll('.rv'),function(x){x.setAttribute('aria-pressed','false');});
+    b.setAttribute('aria-pressed','true');render();};
+  whoEl.appendChild(b);
+});
+
+// done[reviewerSlug][catSlug] = Set(sample_id)
+var DONE={};
+function bucket(rows){
+  var d={};
+  rows.forEach(function(x){
+    var slug=NORM2SLUG[norm(x.grp)];if(!slug)return;
+    // reviewer name -> slug
+    var rv=RVS.filter(function(r){return r.name===x.reviewer;})[0];if(!rv)return;
+    (d[rv.slug]=d[rv.slug]||{});(d[rv.slug][slug]=d[rv.slug][slug]||{});
+    d[rv.slug][slug][x.sample_id]=1;
+  });
+  return d;
+}
+function cnt(rvslug,catslug){var o=DONE[rvslug]&&DONE[rvslug][catslug];return o?Object.keys(o).length:0;}
+
+function render(){
+  var mine=document.getElementById('mine');
+  if(!curSlug){mine.innerHTML='<div class="empty">위에서 본인 이름을 선택하세요.</div>';return;}
+  var rv=RVS.filter(function(r){return r.slug===curSlug;})[0];
+  var firstIncomplete=null;
+  CATS.forEach(function(c){var tot=rv.totals[c.slug]||0;if(firstIncomplete===null&&cnt(curSlug,c.slug)<tot&&tot>0)firstIncomplete=c.slug;});
+  mine.innerHTML='';
+  CATS.forEach(function(c,i){
+    var tot=rv.totals[c.slug]||0, done=cnt(curSlug,c.slug);
+    var pctv=tot?Math.round(done/tot*100):0, full=(tot>0&&done>=tot);
+    var isNow=(c.slug===firstIncomplete);
+    var a=document.createElement('a');
+    a.className='card'+(isNow?' now':'')+(full?' done':'');
+    a.href=tot? ('data/'+curSlug+'/'+c.slug+'.html') : 'javascript:void(0)';
+    if(!tot)a.style.pointerEvents='none';
+    a.innerHTML='<div class="ord">'+(i+1)+'</div>'+
+      '<div class="cmid"><div class="clabel">'+c.label+(isNow?'<span class="nowtag">▶ 지금</span>':'')+
+      (tot?'':' <span class="hint">(데이터 없음)</span>')+'</div>'+
+      '<div class="cbarwrap"><div class="cbar'+(full?' full':'')+'" style="width:'+pctv+'%"></div></div></div>'+
+      '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
+    mine.appendChild(a);
+  });
+  renderTeam();
+}
+function renderTeam(){
+  var tw=document.getElementById('teamwrap');tw.hidden=false;
+  var h='<table class="team"><thead><tr><th class="l">카테고리</th>';
+  RVS.forEach(function(r){h+='<th>'+r.name+'</th>';});h+='<th>합계</th></tr></thead><tbody>';
+  CATS.forEach(function(c,i){
+    h+='<tr><td class="l">'+(i+1)+'. '+c.label+'</td>';var sd=0,st=0;
+    RVS.forEach(function(r){var tot=r.totals[c.slug]||0,done=cnt(r.slug,c.slug);sd+=done;st+=tot;
+      h+='<td>'+(tot?done+'/'+tot:'–')+'</td>';});
+    h+='<td><b>'+sd+'/'+st+'</b> ('+(st?Math.round(sd/st*100):0)+'%)</td></tr>';
+  });
+  h+='</tbody></table>';document.getElementById('team').innerHTML=h;
+}
+
+render();  // 먼저 0%로 그림
+// 라이브 진행률 fetch (전체 rows 한 번)
+fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp',{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
+  .then(function(r){return r.ok?r.json():[];})
+  .then(function(rows){DONE=bucket(rows);render();})
+  .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
+</script></body></html>
