@@ -61,12 +61,17 @@ NEW_SYNCPUSH = (
     "      .then(function(r){return r.ok?r.json():[];})\n"
     "      .then(function(rows){acc=acc.concat(rows);if(rows.length===1000){page(off+1000);}else{apply(acc);}})\n"
     "      .catch(function(){});}\n"
+    # 필드 단위 병합: 로컬 값이 있는 필드는 유지, 빈 필드(판정/URL/GT후보/메모)만 서버 값으로 보충.
+    # 로컬이 완전히 빈 샘플은 자연히 전체가 서버 값으로 채워진다(구버전 동작 포함).
     "    function apply(rows){var n=0;rows.forEach(function(x){var id=String(x.sample_id);\n"
-    "      if(!sampById[id])return;if(noteGet(id).trim()!=='')return;\n"
-    "      var tags=String(x.tags||'').split('|').filter(Boolean),picks=String(x.gt_candidates||'').split('|').filter(Boolean);\n"
-    "      var t=noteCombine(tags,String(x.url||''),picks,String(x.note||''));\n"
-    "      if(t.trim()!==''&&noteSet(id,t))n++;});\n"
-    "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원','ok');}}\n"
+    "      if(!sampById[id])return;var loc=noteParts(id);\n"
+    "      var tags=loc.tags.length?loc.tags:String(x.tags||'').split('|').filter(Boolean);\n"
+    "      var picks=(loc.gtPicks&&loc.gtPicks.length)?loc.gtPicks:String(x.gt_candidates||'').split('|').filter(Boolean);\n"
+    "      var url=(loc.url&&loc.url.trim())?loc.url:String(x.url||'');\n"
+    "      var body=loc.body.trim()!==''?loc.body:String(x.note||'');\n"
+    "      var t=noteCombine(tags,url,picks,body);\n"
+    "      if(t.trim()!==''&&t!==noteGet(id)&&noteSet(id,t))n++;});\n"
+    "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}}\n"
     "    page(0);}\n"
     "setTimeout(syncPull,0);"  # 스크립트 초기화(reviewer/sampById/렌더) 완료 후 실행
 )
