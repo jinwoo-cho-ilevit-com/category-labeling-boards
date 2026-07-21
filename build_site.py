@@ -219,11 +219,19 @@ function renderTeam(){
 }
 
 render();  // 먼저 0%로 그림
-// 라이브 진행률 fetch (전체 rows 한 번)
-fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp',{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
-  .then(function(r){return r.ok?r.json():[];})
-  .then(function(rows){DONE=bucket(rows);render();})
-  .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
+// 라이브 진행률 fetch — PostgREST 기본 상한(1000행) 대응 페이지네이션
+(function loadProgress(){
+  var acc=[];
+  function page(off){
+    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp&order=created_at.asc&limit=1000&offset='+off,
+      {headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
+      .then(function(r){return r.ok?r.json():[];})
+      .then(function(rows){acc=acc.concat(rows);
+        if(rows.length===1000){page(off+1000);}else{DONE=bucket(acc);render();}})
+      .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
+  }
+  page(0);
+})();
 </script></body></html>
 """
 
