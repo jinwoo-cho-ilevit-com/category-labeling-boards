@@ -4,6 +4,7 @@
 - 입력:  SRC_DIR/board_*.html  (각 파일은 <script id="data"> 로 전체 payload 임베드)
 - 출력:  OUT_DIR/index.html + OUT_DIR/data/<rslug>/<cslug>.html
 - 저장:  각 보드의 Apps Script sync -> Supabase upsert(reviews) 로 교체
+- 복원:  로드 시 syncPull이 서버에서 본인 리뷰를 받아 로컬이 빈 샘플만 채움(로컬 우선)
 """
 import json, re, glob, os, collections, html as _html, shutil
 
@@ -47,7 +48,24 @@ NEW_SYNCPUSH = (
     "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
     "      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();}"
     "else{setSyncStat('저장 실패(로컬 보관)','bad');}})\n"
-    "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');});}"
+    "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');});}\n"
+    # syncPull: 로드 시 서버(reviews)에서 본인 리뷰를 받아 로컬이 빈 샘플만 복원.
+    # 로컬 입력이 항상 우선(덮어쓰기 없음) — 브라우저 교체/초기화 시 자동 복구용.
+    "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[];\n"
+    "    function page(off){fetch(SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates"
+    "&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit=1000&offset='+off,"
+    "{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}})\n"
+    "      .then(function(r){return r.ok?r.json():[];})\n"
+    "      .then(function(rows){acc=acc.concat(rows);if(rows.length===1000){page(off+1000);}else{apply(acc);}})\n"
+    "      .catch(function(){});}\n"
+    "    function apply(rows){var n=0;rows.forEach(function(x){var id=String(x.sample_id);\n"
+    "      if(!sampById[id])return;if(noteGet(id).trim()!=='')return;\n"
+    "      var tags=String(x.tags||'').split('|').filter(Boolean),picks=String(x.gt_candidates||'').split('|').filter(Boolean);\n"
+    "      var t=noteCombine(tags,String(x.url||''),picks,String(x.note||''));\n"
+    "      if(t.trim()!==''&&noteSet(id,t))n++;});\n"
+    "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원','ok');}}\n"
+    "    page(0);}\n"
+    "setTimeout(syncPull,0);"  # 스크립트 초기화(reviewer/sampById/렌더) 완료 후 실행
 )
 SYNCVAR_OLD = "var SYNC=D.sync_url||'', reviewer='';"
 SYNCVAR_NEW = "var SYNC=D.sync_url||'', reviewer='';var SB_URL=D.supabase_url||'',SB_KEY=D.supabase_key||'';"
