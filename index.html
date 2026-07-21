@@ -118,7 +118,7 @@ render();  // 먼저 0%로 그림
 (function loadProgress(){
   var acc=[];
   function page(off){
-    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp,gt_candidates&order=created_at.asc&limit=1000&offset='+off,
+    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp,gt_candidates&order=row_id.asc&limit=1000&offset='+off,
       {headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
       .then(function(r){return r.ok?r.json():[];})
       .then(function(rows){acc=acc.concat(rows);
