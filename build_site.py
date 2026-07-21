@@ -40,9 +40,12 @@ SYNCPUSH_RE = re.compile(
     re.S,
 )
 NEW_SYNCPUSH = (
-    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var p=noteParts(id),s=sampById[String(id)]||{};\n"
-    "    var rec={reviewer:reviewer,sample_id:String(id),grp:s.group||'',name:s.name||'',gt:s.gt||'',"
+    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var p=noteParts(id),s=sampById[String(id)];\n"
+    "    var rec={reviewer:reviewer,sample_id:String(id),"
     "tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
+    // 샘플 메타(grp/name/gt)는 이 보드에 있는 샘플일 때만 포함 — 다른 보드에서의
+    // 전체저장(syncAll)이 기존 행의 카테고리를 ''로 덮어써 진행률에서 빠지는 것 방지.
+    "    if(s){rec.grp=s.group||'';rec.name=s.name||'';rec.gt=s.gt||'';}\n"
     "    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',"
     "headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',"
     "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
@@ -225,7 +228,7 @@ render();  // 먼저 0%로 그림
 (function loadProgress(){
   var acc=[];
   function page(off){
-    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp,gt_candidates&order=created_at.asc&limit=1000&offset='+off,
+    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp,gt_candidates&order=row_id.asc&limit=1000&offset='+off,
       {headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
       .then(function(r){return r.ok?r.json():[];})
       .then(function(rows){acc=acc.concat(rows);
