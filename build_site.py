@@ -8,13 +8,14 @@
 """
 import json, re, glob, os, collections, html as _html, shutil
 
-SRC_DIR = "/Users/jwcho/Downloads/temp"
+SRC_DIR = "/Users/jwcho/Downloads/temp-2"
 OUT_DIR = "/Users/jwcho/Codes/category-labeling-boards"
 
 SUPABASE_URL = "https://qnhwcwsizommxuqfpalo.supabase.co"
 SUPABASE_KEY = "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"
 
 # 진행 순서(소프트). 표시 라벨은 데이터 원본 형식. 매칭 키는 공백 제거 정규화.
+# 순서: 기존 운영 6개 -> 신규 카테고리 3개 -> 기존 카테고리 추가분('… 신규') 2개(맨 아래).
 TARGET_ORDER = [
     "2.1.1",
     "2.1.1 (출산/유아동)",
@@ -22,6 +23,11 @@ TARGET_ORDER = [
     "2.1.2 (출산/유아동)",
     "2.2.1 (뷰티)",
     "2.2.1 (영양제)",
+    "2.1.3 (신선)",
+    "4.1.2 (가공식품)",
+    "4.1.3 (펫)",
+    "2.1.1 (출산/유아동) 신규",
+    "2.1.1.2 (출산/유아동) 신규",
 ]
 
 def norm(s: str) -> str:
@@ -30,6 +36,38 @@ def norm(s: str) -> str:
 NORM_ORDER = [norm(c) for c in TARGET_ORDER]
 CAT_SLUG = {norm(c): f"c{i+1}" for i, c in enumerate(TARGET_ORDER)}
 CAT_LABEL = {norm(c): c for c in TARGET_ORDER}
+
+# 검수자 -> rN 슬러그 고정 순서(배포 URL 안정성). 목록 밖 이름은 뒤로.
+REVIEWER_ORDER = ["김민지", "유다연", "이지나", "조승현"]
+
+# --- 카테고리 확장/제외 + 신규 섹션 분리 --------------------------------------
+# 제외: board 미노출(요청: 스포츠/레저·가구·패션렌즈). DB 리뷰는 별개로 보존됨.
+EXCLUDE_LABELS = {"2.2.2 (스포츠/레져)", "4.1.1 가구", "3.1.2 (패션렌즈_의류/잡화)"}
+EXCLUDE_NORM = {norm(x) for x in EXCLUDE_LABELS}
+# 기존 운영 카테고리: 기준선(현재 board)에 없던 샘플은 '<라벨> 신규' 섹션으로 분리.
+EXISTING_LABELS = {
+    "2.1.1", "2.1.1 (출산/유아동)", "2.1.1.2 (출산/유아동)",
+    "2.1.2 (출산/유아동)", "2.2.1 (뷰티)", "2.2.1 (영양제)",
+}
+EXISTING_NORM = {norm(x) for x in EXISTING_LABELS}
+NEW_SUFFIX = " 신규"
+
+# 기준선: 확장 시점의 현재 board 샘플 id(검수자명 -> set). '기존 vs 신규' 판별 기준.
+BASELINE = {}
+_baseline_path = os.path.join(OUT_DIR, "baseline_samples.json")
+if os.path.exists(_baseline_path):
+    BASELINE = {k: set(v) for k, v in json.load(open(_baseline_path, encoding="utf-8")).items()}
+
+def section_label(sample, reviewer):
+    """샘플이 들어갈 board 섹션 라벨. 제외 대상은 None."""
+    g = str(sample.get("group", "") or "")
+    gn = norm(g)
+    if gn in EXCLUDE_NORM:
+        return None
+    if gn in EXISTING_NORM:
+        base = BASELINE.get(reviewer, set())
+        return g if sample.get("id") in base else g + NEW_SUFFIX
+    return g  # 신규 카테고리 등 — TARGET_ORDER에 없으면 이후 단계에서 드롭
 
 DATA_RE = re.compile(r'(<script type="application/json" id="data">)(.*?)(</script>)', re.S)
 
@@ -252,9 +290,15 @@ def main():
     # .git / onboarding.html / README.md / build_site.py 등 루트 자산은 건드리지 않음.
     shutil.rmtree(os.path.join(OUT_DIR, "data"), ignore_errors=True)
     reviewers = []  # {name, slug, totals:{catnorm:count}}
-    files = sorted(glob.glob(os.path.join(SRC_DIR, "board_*.html")))
+    files = glob.glob(os.path.join(SRC_DIR, "board_*.html"))
     if not files:
         raise SystemExit(f"입력 board_*.html 없음: {SRC_DIR}")
+    # rN 슬러그를 REVIEWER_ORDER로 고정(배포 URL 안정성). reviewer_default만 가볍게 추출해 정렬.
+    def _rev_of(p):
+        m = re.search(r'"reviewer_default"\s*:\s*"([^"]*)"', open(p, encoding="utf-8").read())
+        return m.group(1) if m else os.path.basename(p)[6:-5]
+    _rev = {p: _rev_of(p) for p in files}
+    files.sort(key=lambda p: (REVIEWER_ORDER.index(_rev[p]) if _rev[p] in REVIEWER_ORDER else 999, p))
     for ri, f in enumerate(files):
         raw = open(f, encoding="utf-8").read()
         m = DATA_RE.search(raw)
@@ -263,10 +307,14 @@ def main():
         rslug = f"r{ri+1}"
         template = raw  # 데이터는 카테고리별로 갈아끼움
 
-        # 카테고리별 샘플 분할
+        # 섹션별 샘플 분할 (제외 스킵 + 기존카테고리 신규분은 '… 신규' 섹션으로)
         by_cat = collections.defaultdict(list)
         for s in D.get("samples", []):
-            k = norm(s.get("group", ""))
+            sec = section_label(s, reviewer)
+            if sec is None:
+                continue
+            s["group"] = sec  # syncPush가 s.group을 grp로 저장 -> 진행률 섹션 정합
+            k = norm(sec)
             if k in CAT_SLUG:
                 by_cat[k].append(s)
 
