@@ -65,10 +65,9 @@ RVS.forEach(function(r){
 // done[reviewerSlug][catSlug] = Set(sample_id)
 var DONE={};
 function bucket(rows){
+  // 완료행(gt_candidates 비어있지 않음)만 서버에서 필터되어 옴 — 여기선 grp만 매핑.
   var d={};
   rows.forEach(function(x){
-    // 완료 기준: GT후보 선정됨('__none__'=없음 확정 포함). 메모/판정만 있는 행은 미완료.
-    if(!String(x.gt_candidates||'').trim())return;
     var slug=NORM2SLUG[norm(x.grp)];if(!slug)return;
     // reviewer name -> slug
     var rv=RVS.filter(function(r){return r.name===x.reviewer;})[0];if(!rv)return;
@@ -128,17 +127,16 @@ function renderTeam(){
 }
 
 render();  // 먼저 0%로 그림
-// 라이브 진행률 fetch — PostgREST 기본 상한(1000행) 대응 페이지네이션
+// 라이브 진행률 fetch — 완료행(gt_candidates 비어있지 않음)만 서버 필터 + 페이지 병렬 요청(wave).
+// 기존: 전체행 1000단위 순차 왕복(느림). 개선: 완료행만(행수↓) + PAR개씩 동시 요청.
 (function loadProgress(){
-  var acc=[];
-  function page(off){
-    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp,gt_candidates&order=row_id.asc&limit=1000&offset='+off,
-      {headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
-      .then(function(r){return r.ok?r.json():[];})
-      .then(function(rows){acc=acc.concat(rows);
-        if(rows.length===1000){page(off+1000);}else{DONE=bucket(acc);render();}})
-      .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
-  }
-  page(0);
+  var acc=[], PAGE=1000, PAR=8;
+  var base=SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp&gt_candidates=neq.&order=row_id.asc&limit='+PAGE+'&offset=';
+  // HTTP 오류는 빈 페이지로 오인 시 wave 조기 종료(부분 집계) → 최대 2회 재시도 후 throw(→catch 배너).
+  function gp(off,t){return fetch(base+off,{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}
+  function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));
+    return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}
+  wave(0).then(function(){DONE=bucket(acc);render();})
+    .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
 })();
 </script></body></html>
