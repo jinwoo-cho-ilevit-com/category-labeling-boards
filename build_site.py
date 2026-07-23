@@ -426,7 +426,10 @@ def main():
     for d in glob.glob(os.path.join(OUT_DIR, "data", "*")):
         if os.path.basename(d) == "verify":
             continue
-        shutil.rmtree(d, ignore_errors=True) if os.path.isdir(d) else os.remove(d)
+        if os.path.islink(d) or os.path.isfile(d):
+            os.remove(d)
+        elif os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
     reviewers = []  # {name, slug, totals:{catnorm:count}}
     files = glob.glob(os.path.join(SRC_DIR, "board_*.html"))
     if not files:
@@ -440,10 +443,13 @@ def main():
 
     # 재분배 계산(pre-pass): 이지나 하차분을 나머지 3인 보드로 이관.
     extra, give_ids = plan_redistribution(files)
+    missing_img = 0  # IMG_MAP에 없어 이미지 URL이 안 붙은 렌더 샘플 수(경고용)
 
     for ri, f in enumerate(files):
         raw = open(f, encoding="utf-8").read()
         m = DATA_RE.search(raw)
+        if not m:
+            raise RuntimeError(f"data 스크립트 앵커를 못 찾음: {f}")
         D = json.loads(m.group(2))
         reviewer = D.get("reviewer_default") or os.path.basename(f)[6:-5]
         rslug = f"r{ri+1}"
@@ -469,6 +475,8 @@ def main():
                 s["_img_data"] = S3_BASE + IMG_MAP[sid]
             k = norm(sec)
             if k in CAT_SLUG:
+                if sid not in IMG_MAP:
+                    missing_img += 1  # 슬림 소스엔 base64 없음 -> URL 미주입 시 이미지 깨짐
                 by_cat[k].append(s)
 
         rdir = os.path.join(OUT_DIR, "data", rslug)
@@ -499,6 +507,10 @@ def main():
             open(outp, "w", encoding="utf-8").write(html_out)
         reviewers.append({"name": reviewer, "slug": rslug, "totals": totals})
         print(f"[{reviewer}] {rslug}: " + ", ".join(f"{CAT_SLUG[k]}={totals[k]}" for k in NORM_ORDER))
+
+    if missing_img:
+        print(f"⚠ 경고: 이미지 URL 미주입 {missing_img}건 — image_urls.json 커버리지 확인 필요"
+              f"(슬림 소스엔 base64 없음 → 해당 샘플 이미지 깨짐)")
 
     # manifest + index
     manifest = {
