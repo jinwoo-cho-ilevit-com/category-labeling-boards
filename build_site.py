@@ -253,7 +253,6 @@ table.team tfoot td{border-top:2px solid var(--line);font-weight:700;color:var(-
 <a class="guide" href="onboarding.html" target="_blank" rel="noopener">📖 GT 복수정답 검수 온보딩 가이드</a>
 <div class="who" id="who"><span class="lbl">검수자</span></div>
 <div id="mine"><div class="empty">위에서 본인 이름을 선택하세요.</div></div>
-<div id="rvsumwrap" hidden><h2>검수자별 진행률</h2><div id="rvsum"></div></div>
 <div id="teamwrap" hidden><h2>카테고리별 진행률</h2><div id="team"></div></div>
 <div class="foot" id="foot"></div>
 </div>
@@ -292,7 +291,7 @@ function bucket(rows){
 }
 function cnt(rvslug,catslug){var o=DONE[rvslug]&&DONE[rvslug][catslug];return o?Object.keys(o).length:0;}
 
-function render(){renderMine();renderReviewerSummary();renderTeam();}
+function render(){renderMine();renderTeam();}
 function renderMine(){
   var mine=document.getElementById('mine');
   if(!curSlug){mine.innerHTML='<div class="empty">위에서 본인 이름을 선택하세요.</div>';return;}
@@ -316,21 +315,6 @@ function renderMine(){
       '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
     mine.appendChild(a);
   });
-}
-// 검수자별 진행률(전체 합산) — 선택 여부와 무관하게 항상 표시
-function renderReviewerSummary(){
-  var w=document.getElementById('rvsumwrap');w.hidden=false;
-  var h='<table class="team"><thead><tr><th class="l">검수자</th><th>완료</th><th>전체</th><th>남음</th><th style="width:130px">진행률</th></tr></thead><tbody>';
-  RVS.forEach(function(r){
-    var dn=0,tt=0;
-    CATS.forEach(function(c){var tot=r.totals[c.slug]||0;if(!tot)return;var d=Math.min(cnt(r.slug,c.slug),tot);dn+=d;tt+=tot;});
-    var pct=tt?Math.round(dn/tt*100):0, full=(tt>0&&dn>=tt);
-    var me=(r.slug===curSlug)?' style="font-weight:700"':'';
-    h+='<tr'+me+'><td class="l">'+r.name+'</td><td>'+dn+'</td><td>'+tt+'</td><td>'+(tt-dn)+'</td>'+
-       '<td><div class="cbarwrap"><div class="cbar'+(full?' full':'')+'" style="width:'+pct+'%"></div></div>'+
-       '<span class="hint">'+pct+'%</span></td></tr>';
-  });
-  h+='</tbody></table>';document.getElementById('rvsum').innerHTML=h;
 }
 function renderTeam(){
   var tw=document.getElementById('teamwrap');tw.hidden=false;
