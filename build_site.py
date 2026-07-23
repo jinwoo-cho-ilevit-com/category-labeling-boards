@@ -384,7 +384,10 @@ def plan_redistribution(files):
     holders = collections.defaultdict(lambda: collections.defaultdict(set))  # catnorm->reviewer->{id}
     ezn = collections.defaultdict(dict)  # catnorm -> {id: sample}
     for f in files:
-        D = json.loads(DATA_RE.search(open(f, encoding="utf-8").read()).group(2))
+        m = DATA_RE.search(open(f, encoding="utf-8").read())
+        if not m:
+            raise RuntimeError(f"data 스크립트 앵커를 못 찾음: {f}")
+        D = json.loads(m.group(2))
         rev = D.get("reviewer_default") or os.path.basename(f)[6:-5]
         for s in D.get("samples", []):
             sec = section_label(s, rev)
