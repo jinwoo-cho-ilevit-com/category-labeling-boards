@@ -30,6 +30,7 @@ table.team{border-collapse:collapse;width:100%;font-size:13px;margin-top:4px}
 table.team th,table.team td{padding:6px 8px;border-bottom:1px solid var(--line-soft);text-align:right}
 table.team th{color:var(--ink-faint);font-weight:600;font-size:11px;text-transform:uppercase}
 table.team td.l,table.team th.l{text-align:left;font-family:var(--mono)}
+table.team tfoot td{border-top:2px solid var(--line);font-weight:700;color:var(--ink)}
 .foot{margin-top:30px;color:var(--ink-faint);font-size:12px;border-top:1px solid var(--line-soft);padding-top:14px}
 .empty{color:var(--ink-faint);padding:30px 0;text-align:center}
 </style></head><body><div class="wrap">
@@ -127,7 +128,14 @@ function renderTeam(){
       h+='<td>'+(tot?done+'/'+tot:'–')+'</td>';});
     h+='<td><b>'+sd+'/'+st+'</b> ('+(st?Math.round(sd/st*100):0)+'%)</td></tr>';
   });
-  h+='</tbody></table>';document.getElementById('team').innerHTML=h;
+  // 합계 행: 각 검수자 열의 총 완료/전체 + 진행률(맨 아래 고정)
+  h+='</tbody><tfoot><tr><td class="l">합계</td>';var gsd=0,gst=0;
+  RVS.forEach(function(r){var sd=0,st=0;
+    CATS.forEach(function(c){var tot=r.totals[c.slug]||0;if(!tot)return;sd+=Math.min(cnt(r.slug,c.slug),tot);st+=tot;});
+    gsd+=sd;gst+=st;
+    h+='<td><b>'+sd+'/'+st+'</b><br>'+(st?Math.round(sd/st*100):0)+'%</td>';});
+  h+='<td><b>'+gsd+'/'+gst+'</b> ('+(gst?Math.round(gsd/gst*100):0)+'%)</td></tr></tfoot>';
+  h+='</table>';document.getElementById('team').innerHTML=h;
 }
 
 render();  // 먼저 0%로 그림
