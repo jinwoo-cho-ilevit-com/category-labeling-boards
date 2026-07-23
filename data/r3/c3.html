@@ -301,7 +301,7 @@
   function setSyncStat(t,cls){var el=document.getElementById('syncstat');if(el){el.textContent=t;el.className='syncstat'+(cls?' '+cls:'');}}
   function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var p=noteParts(id),s=sampById[String(id)];
     var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};
-    if(s){rec.grp=s.group||'';rec.name=s.name||'';rec.gt=s.gt||'';}
+    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}
     fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
       .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();SERVERSIG[String(id)]=locSig(id);renderUnsynced();}else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})
       .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}
@@ -350,7 +350,7 @@ function pushList(ids,attempt){var i=0,ok=0,failed=[];
         renderUnsynced();return;}
         var id=ids[i++],p=noteParts(id),s=sampById[String(id)];
         var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};
-        if(s){rec.grp=s.group||'';rec.name=s.name||'';rec.gt=s.gt||'';}
+        if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}
         fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
           .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{failed.push(id);try{r.text().then(function(t){console.error('\uc800\uc7a5 \uc2e4\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})
           .catch(function(){failed.push(id);})

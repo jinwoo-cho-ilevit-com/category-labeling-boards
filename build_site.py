@@ -6,7 +6,7 @@
 - 저장:  각 보드의 Apps Script sync -> Supabase upsert(reviews) 로 교체
 - 복원:  로드 시 syncPull이 서버에서 본인 리뷰를 받아 로컬이 빈 샘플만 채움(로컬 우선)
 """
-import json, re, glob, os, collections, html as _html, shutil
+import json, re, glob, os, collections, html as _html, shutil, math
 
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))  # build_site.py가 있는 저장소(하드코딩 경로 제거)
 # 슬림 빌드 소스(base64 제거, ~11MB×4)를 저장소에 커밋 — 외부 휘발성 Downloads/temp-2 의존 제거.
@@ -20,6 +20,21 @@ SUPABASE_KEY = "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"
 S3_BASE = "https://alwayz-assets.s3.amazonaws.com/"
 _img_map_path = os.path.join(OUT_DIR, "image_urls.json")
 IMG_MAP = json.load(open(_img_map_path, encoding="utf-8")) if os.path.exists(_img_map_path) else {}
+
+# --- 추가 검수(LLM 재라벨 검증) 소스 --------------------------------------------
+# board_source/verify_<검수자>.jsonl = 검수자별 배정된 검증 샘플(top10 후보 + LLM 선택 + 근거
+# + 공개 이미지 URL). phaseId를 카테고리로 삼아 VERIFY_CHUNK 단위로 카드를 분할해, 기존
+# c1~c11과 '동일한' 카테고리 카드 파이프라인(카드/진행률바/대시보드)으로 흡수한다.
+# 화면 라벨은 순수 카테고리명(예: "2.2.1 (뷰티)") — 단 진행률 집계키(grp)는 기존 카테고리와
+# 겹치면 안 되므로 grp_key(verify::<phase>::<chunk>)로 분리한다. 라벨은 '추가 검수' 섹션 헤더로 구분.
+VERIFY_CHUNK = 200
+VERIFY_SECTION = "추가 검수"
+VERIFY_RUNS = [{"run_id": "llm-relabel-gemini3flash-top10", "provider": "google",
+                "model": "gemini-3-flash-preview", "prompt": "relabel/top10-select", "think": "low"}]
+
+def _vgrpkey(phase, chunk):
+    """진행률 집계용 내부 키 — 기존 카테고리명과 절대 충돌하지 않도록 접두사 부여."""
+    return f"verify::{phase}::{chunk}"
 
 # 진행 순서(소프트). 표시 라벨은 데이터 원본 형식. 매칭 키는 공백 제거 정규화.
 # 순서: 기존 운영 6개 -> 신규 카테고리 3개 -> 기존 카테고리 추가분('… 신규') 2개(맨 아래).
@@ -108,7 +123,8 @@ NEW_SYNCPUSH = (
     "tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
     # 샘플 메타(grp/name/gt)는 이 보드에 있는 샘플일 때만 포함 — 다른 보드에서의
     # 전체저장(syncAll)이 기존 행의 카테고리를 ''로 덮어써 진행률에서 빠지는 것 방지.
-    "    if(s){rec.grp=s.group||'';rec.name=s.name||'';rec.gt=s.gt||'';}\n"
+    # grp는 grp_key(추가 검수 카드) 우선 — 기존 카테고리명과 겹쳐 집계가 섞이는 것 방지.
+    "    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}\n"
     "    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',"
     "headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',"
     "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
@@ -174,7 +190,7 @@ NEW_SYNCPUSH = (
     "        renderUnsynced();return;}\n"
     "        var id=ids[i++],p=noteParts(id),s=sampById[String(id)];\n"
     "        var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
-    "        if(s){rec.grp=s.group||'';rec.name=s.name||'';rec.gt=s.gt||'';}\n"
+    "        if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}\n"
     "        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
     "          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{failed.push(id);try{r.text().then(function(t){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})\n"
     "          .catch(function(){failed.push(id);})\n"
@@ -204,8 +220,9 @@ CATNAV_CSS = (
     "#unsyncbar button:disabled{opacity:.6;cursor:default}"
 )
 
-def patch_html(raw_html: str, cat_norm: str, order_idx: int, prev_slug, next_slug) -> str:
-    """뷰어 template(HTML)에 sync 교체 + 네비바 주입. 데이터는 호출부에서 이미 교체."""
+def patch_html(raw_html: str, label: str, ord_text: str, prev_slug, next_slug) -> str:
+    """뷰어 template(HTML)에 sync 교체 + 네비바 주입. 데이터는 호출부에서 이미 교체.
+    label=현재 카테고리 표시명, ord_text=네비 순번 표기(예: '3/11' 또는 '추가 2/16')."""
     h = raw_html
     # 1) sync JS 교체
     if SYNCVAR_OLD not in h:
@@ -217,9 +234,8 @@ def patch_html(raw_html: str, cat_norm: str, order_idx: int, prev_slug, next_slu
     # 2) CSS 주입 (첫 </style> 앞)
     h = h.replace("</style>", CATNAV_CSS + "</style>", 1)
     # 3) 네비바 주입 (chips div 뒤)
-    label = CAT_LABEL[cat_norm]
     parts = ['<a href="../../index.html">◀ 전체 목록</a>',
-             f'<span class="cn-ord">{order_idx+1}/{len(NORM_ORDER)}</span>',
+             f'<span class="cn-ord">{_html.escape(ord_text)}</span>',
              f'<span class="cn-cur">{_html.escape(label)}</span>']
     if prev_slug:
         parts.append(f'<a href="{prev_slug}.html">◀ 이전</a>')
@@ -267,6 +283,8 @@ table.team td.l,table.team th.l{text-align:left;font-family:var(--mono)}
 table.team tfoot td{border-top:2px solid var(--line);font-weight:700;color:var(--ink)}
 .foot{margin-top:30px;color:var(--ink-faint);font-size:12px;border-top:1px solid var(--line-soft);padding-top:14px}
 .empty{color:var(--ink-faint);padding:30px 0;text-align:center}
+#mine h2.sec{color:var(--accent);margin:24px 0 10px}
+table.team tr.secrow td{background:var(--surface-2);color:var(--accent);font-weight:700;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
 </style></head><body><div class="wrap">
 <h1>레이블링 검수 보드</h1>
 <div class="sub">카테고리를 순서대로 검수하세요. 저장은 자동으로 DB에 반영됩니다. 진행률은 GT후보 선정(없음 확정 포함) 완료 기준.</div>
@@ -319,40 +337,31 @@ function renderMine(){
   var firstIncomplete=null;
   CATS.forEach(function(c){var tot=rv.totals[c.slug]||0;if(firstIncomplete===null&&cnt(curSlug,c.slug)<tot&&tot>0)firstIncomplete=c.slug;});
   mine.innerHTML='';
+  var vHead=false;  // '추가 검수' 섹션 헤더는 첫 검증 카드 앞에 1회만
   CATS.forEach(function(c,i){
     var tot=rv.totals[c.slug]||0, done=cnt(curSlug,c.slug);
-    if(!tot)return;  // 미배정 카테고리(재분배 하차분 등)는 본인 메뉴에서 숨김
-    var pctv=tot?Math.round(done/tot*100):0, full=(tot>0&&done>=tot);
+    if(!tot)return;  // 미배정 카테고리(재분배 하차분·본인 미보유 청크 등)는 본인 메뉴에서 숨김
+    if(c.verify&&!vHead){var hh=document.createElement('h2');hh.className='sec';
+      hh.textContent=M.verify_section||'추가 검수';mine.appendChild(hh);vHead=true;}
+    var pctv=Math.round(done/tot*100), full=(done>=tot);
     var isNow=(c.slug===firstIncomplete);
     var a=document.createElement('a');
     a.className='card'+(isNow?' now':'')+(full?' done':'');
-    a.href=tot? ('data/'+curSlug+'/'+c.slug+'.html') : 'javascript:void(0)';
-    if(!tot)a.style.pointerEvents='none';
+    a.href='data/'+curSlug+'/'+c.slug+'.html';
     a.innerHTML='<div class="ord">'+(i+1)+'</div>'+
-      '<div class="cmid"><div class="clabel">'+c.label+(isNow?'<span class="nowtag">▶ 지금</span>':'')+
-      (tot?'':' <span class="hint">(데이터 없음)</span>')+'</div>'+
+      '<div class="cmid"><div class="clabel">'+c.label+(isNow?'<span class="nowtag">▶ 지금</span>':'')+'</div>'+
       '<div class="cbarwrap"><div class="cbar'+(full?' full':'')+'" style="width:'+pctv+'%"></div></div></div>'+
       '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
     mine.appendChild(a);
   });
-  // GT 재라벨 검증 카드(LLM이 GT 바꾼 샘플). 카운트는 data/verify/counts.json에서.
-  var vc=(M.verify||{})[curSlug];
-  if(vc){
-    var va=document.createElement('a');
-    va.className='card now';
-    va.href='data/verify/'+curSlug+'.html';
-    va.innerHTML='<div class="ord">🆕</div>'+
-      '<div class="cmid"><div class="clabel">GT 재라벨 검증 <span class="nowtag">LLM 변경분</span></div>'+
-      '<div class="hint">LLM이 GT를 바꾼 샘플을 top-10 후보에서 확인·수정</div></div>'+
-      '<div class="cnum"><b>'+vc+'</b>건</div>';
-    mine.appendChild(va);
-  }
 }
 function renderTeam(){
   var tw=document.getElementById('teamwrap');tw.hidden=false;
   var h='<table class="team"><thead><tr><th class="l">카테고리</th>';
   RVS.forEach(function(r){h+='<th>'+r.name+'</th>';});h+='<th>합계</th></tr></thead><tbody>';
+  var vHead=false;  // '추가 검수' 구분 행은 첫 검증 카테고리 앞에 1회만
   CATS.forEach(function(c,i){
+    if(c.verify&&!vHead){h+='<tr class="secrow"><td class="l" colspan="'+(RVS.length+2)+'">'+(M.verify_section||'추가 검수')+'</td></tr>';vHead=true;}
     h+='<tr><td class="l">'+(i+1)+'. '+c.label+'</td>';var sd=0,st=0;
     RVS.forEach(function(r){var tot=r.totals[c.slug]||0,done=cnt(r.slug,c.slug);sd+=done;st+=tot;
       h+='<td>'+(tot?done+'/'+tot:'–')+'</td>';});
@@ -434,13 +443,71 @@ def plan_redistribution(files):
     return extra, give_ids
 
 
+def load_verify_sources():
+    """board_source/verify_<검수자>.jsonl -> {reviewer: [sample,...]} (파일 순서 유지)."""
+    out = {}
+    for f in sorted(glob.glob(os.path.join(SRC_DIR, "verify_*.jsonl"))):
+        rev = os.path.basename(f)[len("verify_"):-len(".jsonl")]
+        out[rev] = [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+    return out
+
+
+def plan_verify(verify_by_rev):
+    """검증 샘플을 phase(카테고리)별로 묶어 VERIFY_CHUNK 단위 카드로 분할한다.
+
+    반환: (verify_cats, per_rev)
+      verify_cats: 전 검수자 공통 카드 목록(순서 고정)
+                   [{slug, label, norm, grp_key, phase, chunk, nchunks}]
+      per_rev[reviewer]: {slug: [sample,...]}  — 각 sample에 grp_key 주입됨
+    카드 순서=phase 총량(전 검수자 합) 내림차순, 동수는 phase 문자열. slug=cv1..cvN.
+    한 phase의 카드 수(nchunks)는 '검수자별 최대 보유수' 기준으로 고정(카드 목록을 전원 공통으로
+    유지) — 보유수가 적은 검수자는 뒤쪽 청크 totals=0이라 본인 메뉴에서 자동 숨김."""
+    tot = collections.Counter()
+    maxcnt = collections.Counter()
+    for samples in verify_by_rev.values():
+        c = collections.Counter(str(s.get("group")) for s in samples)
+        for ph, n in c.items():
+            tot[ph] += n
+            if n > maxcnt[ph]:
+                maxcnt[ph] = n
+    phase_order = sorted(tot, key=lambda p: (-tot[p], p))
+
+    verify_cats = []
+    slug_of = {}  # (phase, chunk) -> slug
+    vi = 0
+    for ph in phase_order:
+        nch = max(1, math.ceil(maxcnt[ph] / VERIFY_CHUNK))
+        for ci in range(1, nch + 1):
+            vi += 1
+            slug = f"cv{vi}"
+            label = ph + (f" ({ci}/{nch})" if nch > 1 else "")  # 순수 카테고리명(+분할 표기)
+            gk = _vgrpkey(ph, ci)
+            slug_of[(ph, ci)] = slug
+            verify_cats.append({"slug": slug, "label": label, "norm": norm(gk),
+                                "grp_key": gk, "phase": ph, "chunk": ci, "nchunks": nch})
+
+    per_rev = {}
+    for rev, samples in verify_by_rev.items():
+        by_phase = collections.OrderedDict((p, []) for p in phase_order)
+        for s in samples:
+            by_phase.setdefault(str(s.get("group")), []).append(s)
+        buckets = collections.defaultdict(list)
+        for ph in phase_order:
+            for i, s in enumerate(by_phase.get(ph, [])):
+                ci = i // VERIFY_CHUNK + 1
+                s["grp_key"] = _vgrpkey(ph, ci)  # 진행률 집계키(기존 카테고리명과 분리)
+                buckets[slug_of[(ph, ci)]].append(s)
+        per_rev[rev] = dict(buckets)
+    n = sum(len(v) for ss in per_rev.values() for v in ss.values())
+    print(f"[추가검수] {len(verify_cats)}개 카드(phase {len(phase_order)}종, chunk {VERIFY_CHUNK}) / 총 {n}건")
+    return verify_cats, per_rev
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    # 구 슬러그(c7 등) 잔존 방지: 카테고리 데이터는 매 빌드마다 새로 생성.
-    # 단 data/verify/(GT 재라벨 검증 보드)는 별도 산출물이라 보존.
+    # 구 슬러그(c7·구 data/verify 등) 잔존 방지: 카테고리 데이터는 매 빌드마다 새로 생성.
+    # 추가 검수 카드도 이제 data/<rN>/cvX.html로 통합되므로 별도 보존 예외 없음.
     for d in glob.glob(os.path.join(OUT_DIR, "data", "*")):
-        if os.path.basename(d) == "verify":
-            continue
         if os.path.islink(d) or os.path.isfile(d):
             os.remove(d)
         elif os.path.isdir(d):
@@ -459,6 +526,9 @@ def main():
     # 재분배 계산(pre-pass): 이지나 하차분을 나머지 3인 보드로 이관.
     extra, give_ids = plan_redistribution(files)
     missing_img = 0  # IMG_MAP에 없어 이미지 URL이 안 붙은 렌더 샘플 수(경고용)
+
+    # 추가 검수 사전배치(pre-pass): 검증 샘플을 phase별 chunk 카드로 분할(전원 공통 카드 목록).
+    verify_cats, verify_per_rev = plan_verify(load_verify_sources())
 
     for ri, f in enumerate(files):
         raw = open(f, encoding="utf-8").read()
@@ -517,26 +587,60 @@ def main():
             prev_slug = CAT_SLUG[present[idx_in_present-1]] if idx_in_present > 0 else None
             next_slug = CAT_SLUG[present[idx_in_present+1]] if idx_in_present < len(present)-1 else None
             html_out = DATA_RE.sub(lambda mm: mm.group(1) + data_json + mm.group(3), template, count=1)
-            html_out = patch_html(html_out, k, oi, prev_slug, next_slug)
+            html_out = patch_html(html_out, CAT_LABEL[k], f"{oi+1}/{len(NORM_ORDER)}", prev_slug, next_slug)
             outp = os.path.join(rdir, CAT_SLUG[k] + ".html")
             open(outp, "w", encoding="utf-8").write(html_out)
-        reviewers.append({"name": reviewer, "slug": rslug, "totals": totals})
-        print(f"[{reviewer}] {rslug}: " + ", ".join(f"{CAT_SLUG[k]}={totals[k]}" for k in NORM_ORDER))
+        # --- 추가 검수 카드 방출: 기존 c1~c11과 동일 파이프라인(runs만 검증용으로 교체) ---
+        v_totals = {}
+        v_present = [vc["slug"] for vc in verify_cats
+                     if verify_per_rev.get(reviewer, {}).get(vc["slug"])]
+        for vc in verify_cats:
+            subs = verify_per_rev.get(reviewer, {}).get(vc["slug"], [])
+            v_totals[vc["slug"]] = len(subs)
+            if not subs:
+                continue
+            Dv = dict(D)                           # 전역 필드 유지, samples/runs만 검증용으로 교체
+            Dv["runs"] = VERIFY_RUNS
+            Dv["n_runs"] = 1
+            Dv["samples"] = subs
+            Dv["n_samples"] = len(subs)
+            Dv["embedded_samples"] = len(subs)
+            Dv["sync_url"] = SUPABASE_URL
+            Dv["supabase_url"] = SUPABASE_URL
+            Dv["supabase_key"] = SUPABASE_KEY
+            data_json = json.dumps(Dv, ensure_ascii=False).replace("<", "\\u003c")
+            pi = v_present.index(vc["slug"])
+            prev_slug = v_present[pi - 1] if pi > 0 else None
+            next_slug = v_present[pi + 1] if pi < len(v_present) - 1 else None
+            html_out = DATA_RE.sub(lambda mm: mm.group(1) + data_json + mm.group(3), template, count=1)
+            html_out = patch_html(html_out, vc["label"], f"추가 {pi+1}/{len(v_present)}", prev_slug, next_slug)
+            open(os.path.join(rdir, vc["slug"] + ".html"), "w", encoding="utf-8").write(html_out)
+
+        reviewers.append({"name": reviewer, "slug": rslug, "totals": totals, "vtotals": v_totals})
+        print(f"[{reviewer}] {rslug}: " + ", ".join(f"{CAT_SLUG[k]}={totals[k]}" for k in NORM_ORDER)
+              + f" | 추가검수 {sum(v_totals.values())}건({len(v_present)}카드)")
 
     if missing_img:
         print(f"⚠ 경고: 이미지 URL 미주입 {missing_img}건 — image_urls.json 커버리지 확인 필요"
               f"(슬림 소스엔 base64 없음 → 해당 샘플 이미지 깨짐)")
 
-    # manifest + index
+    # manifest + index — 기존 카테고리(verify:false) + 추가 검수 카드(verify:true)를 한 목록으로.
+    categories = [{"slug": CAT_SLUG[norm(c)], "label": c, "norm": norm(c), "verify": False}
+                  for c in TARGET_ORDER]
+    categories += [{"slug": vc["slug"], "label": vc["label"], "norm": vc["norm"], "verify": True}
+                   for vc in verify_cats]
+
+    def _rv_totals(r):
+        t = {CAT_SLUG[k]: r["totals"].get(k, 0) for k in NORM_ORDER}
+        t.update({vc["slug"]: r.get("vtotals", {}).get(vc["slug"], 0) for vc in verify_cats})
+        return t
+
     manifest = {
         "supabase": {"url": SUPABASE_URL, "key": SUPABASE_KEY},
-        "categories": [{"slug": CAT_SLUG[norm(c)], "label": c, "norm": norm(c)} for c in TARGET_ORDER],
-        "reviewers": [{"name": r["name"], "slug": r["slug"],
-                       "totals": {CAT_SLUG[k]: r["totals"].get(k, 0) for k in NORM_ORDER}} for r in reviewers],
+        "categories": categories,
+        "reviewers": [{"name": r["name"], "slug": r["slug"], "totals": _rv_totals(r)} for r in reviewers],
+        "verify_section": VERIFY_SECTION,
     }
-    # GT 재라벨 검증 보드(data/verify/) 카운트 주입 — 메인 검수자 카드에 통합 노출.
-    _vc = os.path.join(OUT_DIR, "data", "verify", "counts.json")
-    manifest["verify"] = json.load(open(_vc, encoding="utf-8")) if os.path.exists(_vc) else {}
     open(os.path.join(OUT_DIR, "manifest.json"), "w", encoding="utf-8").write(
         json.dumps(manifest, ensure_ascii=False, indent=2))
     idx = INDEX_TEMPLATE.replace("__MANIFEST__", json.dumps(manifest, ensure_ascii=False))

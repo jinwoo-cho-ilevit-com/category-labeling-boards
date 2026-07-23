@@ -1,0 +1,852 @@
+<title>집계 보드</title>
+<style>
+  :root{--bg:#f5f7fa;--surface:#fff;--surface-2:#eef1f6;--ink:#1a2030;--ink-soft:#586178;--ink-faint:#8a93a8;--line:#e0e5ee;--line-soft:#eaeef4;--accent:#3b6ea5;--ok:#1f8a70;--bad:#c2453f;--warn:#b0623a;--miss:#9aa3b5;--okbg:#e3f3ec;--badbg:#f7e2e0;--code-bg:#f3f5f9;}
+  @media (prefers-color-scheme:dark){:root{--bg:#0e131d;--surface:#151b28;--surface-2:#1a2130;--ink:#e6ebf4;--ink-soft:#98a3ba;--ink-faint:#6b7488;--line:#28313f;--line-soft:#202834;--accent:#6ea3d8;--ok:#48c6a2;--bad:#e0736d;--warn:#d98d5f;--miss:#5a6478;--okbg:#12312a;--badbg:#3a1e1e;--code-bg:#121824;}}
+  :root[data-theme="light"]{--bg:#f5f7fa;--surface:#fff;--surface-2:#eef1f6;--ink:#1a2030;--ink-soft:#586178;--ink-faint:#8a93a8;--line:#e0e5ee;--line-soft:#eaeef4;--accent:#3b6ea5;--ok:#1f8a70;--bad:#c2453f;--warn:#b0623a;--miss:#9aa3b5;--okbg:#e3f3ec;--badbg:#f7e2e0;--code-bg:#f3f5f9;}
+  :root[data-theme="dark"]{--bg:#0e131d;--surface:#151b28;--surface-2:#1a2130;--ink:#e6ebf4;--ink-soft:#98a3ba;--ink-faint:#6b7488;--line:#28313f;--line-soft:#202834;--accent:#6ea3d8;--ok:#48c6a2;--bad:#e0736d;--warn:#d98d5f;--miss:#5a6478;--okbg:#12312a;--badbg:#3a1e1e;--code-bg:#121824;}
+  *{box-sizing:border-box}body{margin:0}
+  .wrap{--sans:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Noto Sans KR",monospace;
+    background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14.5px;line-height:1.5;
+    height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  header{padding:12px 18px;border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0}
+  .tabs{display:flex;gap:6px;margin-top:10px;align-items:center;flex-wrap:wrap}
+  .tab{font-size:13px;padding:6px 14px;border:1px solid var(--line);border-radius:8px 8px 0 0;background:var(--surface-2);color:var(--ink-soft);cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+  .chip{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);cursor:pointer;font-family:var(--mono)}
+  .chip[aria-pressed="true"]{border-color:var(--accent);color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+  .chip .n{color:var(--ink-faint);margin-left:5px}
+  .note{font-size:12px;color:var(--ink-faint);margin-left:6px;white-space:pre-wrap;word-break:break-word}
+  .rvhist{border-bottom:1px solid var(--line-soft);padding:8px 0;font-size:13px}
+  .rvhist:last-child{border-bottom:none}
+  .rvhist .meta{color:var(--ink-faint);font-size:12px;font-family:var(--mono)}
+  .rvhist .note{margin-left:0;margin-top:3px;display:block}
+  .rvhist a{color:var(--accent)}
+  .tagbadge{display:inline-block;font-size:11px;font-family:var(--mono);padding:1px 7px;border-radius:10px;background:var(--surface-2);color:var(--ink-soft);margin-left:4px}
+  .pin{font-family:var(--mono);font-size:12px;color:var(--warn)}
+  main{flex:1;min-height:0;position:relative}
+  .pane{position:absolute;inset:0;display:none;flex-direction:column;min-height:0}
+  .pane.on{display:flex}
+  /* leaderboard */
+  .lbwrap{flex:1;overflow:auto}
+  table.lb{border-collapse:collapse;width:100%;font-size:13.5px}
+  table.lb th,table.lb td{padding:6px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line-soft)}
+  table.lb th{position:sticky;top:0;background:var(--surface-2);cursor:pointer;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint);font-weight:600;z-index:1}
+  table.lb th.l,table.lb td.l{text-align:left;font-family:var(--mono)}
+  table.lb td{font-family:var(--mono)}
+  table.lb tr{cursor:pointer}
+  table.lb tbody tr:hover{background:var(--surface-2)}
+  th .ar{color:var(--accent);margin-left:3px}
+  td.pos{color:var(--ok)}td.neg{color:var(--bad)}
+  .bar{display:inline-block;height:9px;border-radius:2px;background:var(--accent);vertical-align:middle;margin-left:6px;opacity:.5}
+  /* cross matrix */
+  .cxhead,.cxrow{display:flex;align-items:stretch}
+  .cxhead{position:sticky;top:0;background:var(--surface-2);border-bottom:1px solid var(--line);z-index:2;font-size:10.5px;color:var(--ink-faint)}
+  #cxscroll{flex:1;overflow:auto;position:relative}
+  #cxspacer{position:relative}
+  .cxrow{position:absolute;left:0;height:30px;border-bottom:1px solid var(--line-soft);cursor:pointer}
+  .cxrow:hover{background:var(--surface-2)}
+  .cxrow.sel{background:color-mix(in srgb,var(--accent) 14%,var(--surface))}
+  .mcell{flex-shrink:0;display:flex;align-items:center;padding:0 6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--mono);font-size:13px;border-right:1px solid var(--line-soft)}
+  .m-nc{width:52px;justify-content:center;font-weight:700}
+  .m-name{width:320px}
+  .m-gt{width:80px}
+  .rcell{width:62px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:600;border-right:1px solid var(--line-soft);overflow:hidden;white-space:nowrap}
+  .rcell.ok{background:var(--okbg);color:var(--ok)}
+  .rcell.bad{background:var(--badbg);color:var(--bad);font-weight:800;text-decoration:underline;text-underline-offset:2px}
+  .rcell.miss{color:var(--miss)}
+  .rcell.pinned{box-shadow:inset 0 0 0 2px var(--accent)}
+  .hcell{transform:none}
+  .rhcell{width:62px;flex-shrink:0;padding:4px 4px;border-right:1px solid var(--line-soft);text-align:center;cursor:pointer;overflow:hidden;font-family:var(--mono);font-size:12px;line-height:1.25}
+  .rhcell:hover{background:var(--surface)}
+  .rhcell.pinned{color:var(--accent);font-weight:700}
+  /* detail */
+  .detail{position:absolute;inset:0;z-index:20;background:var(--bg);display:none;flex-direction:column}
+  .detail.open{display:flex}
+  .dbar{position:relative;display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
+  .dbar .nav{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:4px}
+  .dbar .sp{flex:1}
+  .dbar button{font-family:var(--mono);font-size:13px;padding:5px 11px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);cursor:pointer}
+  .dbody{flex:1;min-height:0;overflow:auto;padding:16px 18px}
+  .drow{display:flex;gap:10px;align-items:center;padding:7px 8px;border-bottom:1px solid var(--line-soft);font-family:var(--mono);font-size:13.5px}
+  .drow .lab{flex:1;color:var(--ink-soft)}
+  .drow .pv{width:120px}
+  .drow.ok{color:var(--ok)}.drow.bad{color:var(--bad)}
+  .drow a{color:var(--accent)}
+  .empty{padding:40px;text-align:center;color:var(--ink-faint)}
+  /* extra sample columns */
+  .m-memo{width:30px;justify-content:center}
+  .m-gtdone{width:34px;justify-content:center;font-size:11px;color:var(--ink-faint)}
+  /* sample detail additions */
+  .dqname{font-size:15.5px;font-weight:600;margin:4px 0}
+  .dqimg{display:block;max-width:320px;max-height:240px;border-radius:8px;border:1px solid var(--line-soft);object-fit:contain;background:var(--surface-2);margin:6px auto}
+  .dsec{margin-top:16px}
+  .dsec>.h{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+  .cand{display:flex;gap:8px;padding:7px 9px;border-bottom:1px solid var(--line-soft);font-size:13.5px}
+  .cand.gt{box-shadow:inset 4px 0 0 var(--ok);background:var(--okbg)}
+  .cand.wrong{box-shadow:inset 4px 0 0 var(--bad);background:var(--badbg)}
+  .cand.gt .bc,.cand.wrong .bc{font-weight:700}
+  .cand .bc{font-family:var(--mono);font-size:15px} .cand .d{color:var(--ink-soft);font-size:15px;margin-top:3px;line-height:1.5}
+  .cand .rk{margin-left:auto;color:var(--ink-faint);font-family:var(--mono);font-size:13px;white-space:nowrap}
+  .cand .pick{color:var(--accent,#4a90d9);font-family:var(--mono);font-size:13px;white-space:nowrap;font-weight:700}
+  .ctag{font-size:12px;font-family:var(--mono);font-weight:700;padding:1px 7px;border-radius:4px;margin-left:7px;vertical-align:middle;color:#fff}
+  .ctag.ct-gt{background:var(--ok)} .ctag.ct-wrong{background:var(--bad)}
+  .cand.has{cursor:pointer} .cand .ccar{display:inline-block;width:1.1em;color:var(--ink-faint);font-size:11px}
+  .gtchk{display:flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;
+    border:1.5px solid var(--ink-soft);border-radius:5px;background:var(--surface);color:var(--ink-soft);
+    font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer;user-select:none;margin-top:1px;
+    box-shadow:0 0 0 1px var(--surface)}  /* 카드 색(정답/오분류 배경)에 묻히지 않게 자체 배경/테두리로 대비 확보 */
+  .gtchk:hover{border-color:var(--accent,#4a90d9)}
+  .gtchk.on{background:var(--accent,#4a90d9);border-color:var(--accent,#4a90d9);color:#fff}
+  .cand.picked{box-shadow:inset 4px 0 0 var(--accent,#4a90d9);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+  .candmodels{background:var(--surface-2);padding:2px 10px 8px;border-bottom:1px solid var(--line-soft)}
+  .srch{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 12px}
+  .srch .srchlbl{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint)}
+  .srch a{font-size:12.5px;font-weight:700;font-family:var(--mono);color:#fff;background:var(--accent);
+    text-decoration:none;border-radius:7px;padding:5px 13px;line-height:1}
+  .srch a:hover{filter:brightness(1.1)}
+  .dqimg{cursor:zoom-in}
+  .tagrow{display:flex;flex-wrap:wrap;gap:6px}
+  .tagchip{font:inherit;font-size:11px;font-family:var(--mono);padding:2px 9px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--ink-faint);cursor:pointer}
+  .tagchip.on{background:var(--accent,#4a90d9);color:#fff;border-color:var(--accent,#4a90d9);font-weight:600}
+  .urlrow{display:flex;gap:8px;align-items:center}
+  .rvurl{flex:1;box-sizing:border-box;font-family:var(--mono);font-size:12px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)}
+  .urlopen{font-size:11px;font-family:var(--mono);color:var(--accent,#4a90d9);text-decoration:none;border:1px solid var(--line);border-radius:4px;padding:4px 9px;white-space:nowrap}
+  .urlopen:hover{background:var(--surface-2)}
+  .syncbox{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:3px 8px;
+    border:1px solid var(--accent);border-radius:8px;background:var(--surface)}
+  .syncbox .synclbl{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent)}
+  .syncbox #reviewer{font-family:var(--mono);font-size:12.5px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink);width:104px}
+  .syncbox #syncAll{font:inherit;font-size:12.5px;font-weight:700;font-family:var(--mono);padding:4px 13px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:#fff;cursor:pointer}
+  .syncbox #syncAll:hover{filter:brightness(1.08)}
+  .syncstat{font-family:var(--mono);font-size:11px;color:var(--ink-faint);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .syncstat.ok{color:var(--ok)} .syncstat.bad{color:var(--warn)}
+  .status{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink-soft);margin-left:auto;align-self:center}
+  .status.warn{color:var(--warn)}
+  .tagsum{font-family:var(--mono);font-size:11px;color:var(--ink-faint);align-self:center}
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:560px){.cmp{grid-template-columns:1fr}}
+  .cmpcol{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2)}
+  .cmpcol.gt{border-left:4px solid var(--ok)} .cmpcol.wrong{border-left:4px solid var(--bad)}
+  .cmph{font-family:var(--mono);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  .cmpcol.gt .cmph{color:var(--ok)} .cmpcol.wrong .cmph{color:var(--bad)}
+  .cmpbc{font-family:var(--mono);font-size:13.5px;font-weight:600;margin-bottom:5px}
+  .cmpd{font-size:13.5px;color:var(--ink-soft);line-height:1.5} .cmpd.na{color:var(--ink-faint)}
+  #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:999;cursor:zoom-out}
+  #lightbox.on{display:flex}
+  #lightbox img{max-width:94vw;max-height:94vh;object-fit:contain;border-radius:6px}  /* 원본 크기 상한 — 확대하지 않음 */
+  .gtbadge{font-weight:800;padding:1px 6px;border-radius:4px}
+  .gtbadge.gt-top{color:var(--ok);background:var(--okbg)}
+  .gtbadge.gt-mid{color:var(--warn);background:var(--badbg)}
+  .gtbadge.gt-oop{color:#fff;background:var(--bad)}
+  #help{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;z-index:1000;padding:40px 16px;overflow:auto}
+  #help.on{display:flex}
+  #help .hbox{background:var(--surface,#fff);color:var(--ink);max-width:720px;width:100%;border-radius:10px;border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.3)}
+  #help .hbar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line-soft);position:sticky;top:0;background:inherit;border-radius:10px 10px 0 0}
+  #help .hbar b{font-size:15px} #help .hhint{color:var(--ink-faint);font-size:11px;font-family:var(--mono)}
+  #help .hbar button{margin-left:auto;border:1px solid var(--line);background:var(--surface-2);color:var(--ink-faint);border-radius:6px;cursor:pointer;padding:2px 9px}
+  #help .hbody{padding:8px 18px 20px}
+  #help h3{font-size:13px;margin:18px 0 6px;color:var(--accent,#4a90d9)}
+  #help table{width:100%;border-collapse:collapse;font-size:12.5px}
+  #help td{padding:5px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  #help td:first-child{white-space:nowrap;font-family:var(--mono);color:var(--ink-soft);width:1%;font-weight:600}
+  #help .hnote{font-size:12px;color:var(--ink-faint);margin:8px 0 0;line-height:1.6}
+  #helpBtn{font:inherit;cursor:pointer}
+  .drow .rsn{flex:2;color:var(--ink-soft);white-space:pre-wrap;word-break:break-word;font-size:15px;line-height:1.5}
+  .drow .cst{width:66px;color:var(--ink-faint);text-align:right;flex-shrink:0}
+  .dbar .hint{font-family:var(--mono);font-size:11px;color:var(--ink-faint);line-height:1.5;text-align:right}
+  .dbar .pos{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--ink);min-width:64px;text-align:center}
+  .dbar .nav button{font-size:15px;padding:3px 12px;font-weight:700}
+  .dbar button:disabled{opacity:.4;cursor:default}
+  .drow .lab{width:180px;flex:none}
+  .memo{width:100%;min-height:90px;box-sizing:border-box;font-family:var(--mono);font-size:12.5px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);resize:vertical}
+  .memohint{font-size:11px;color:var(--ok);margin-top:4px;min-height:14px}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+  .tools button,.tools .imp{font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink-soft);cursor:pointer;font-family:var(--mono)}
+  .tools input[type=search]{font-family:var(--mono);font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);width:200px}
+.catnav{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13px;padding-top:8px;border-top:1px solid var(--line-soft)}.catnav a{color:var(--accent);text-decoration:none;padding:3px 9px;border:1px solid var(--line);border-radius:7px}.catnav a:hover{background:var(--surface-2)}.catnav .cn-cur{font-weight:700;color:var(--ink)}.catnav .cn-ord{font-family:var(--mono);color:var(--ink-faint)}#unsyncbar{position:fixed;right:14px;bottom:14px;z-index:9999;font-size:13px;padding:8px 12px;border-radius:10px;box-shadow:0 3px 12px rgba(0,0,0,.18);border:1px solid var(--line);background:var(--surface);color:var(--ink-soft)}#unsyncbar.ok{color:var(--ok);border-color:var(--ok)}#unsyncbar.warn{color:#8a6d00;background:#fff8e1;border-color:#e0b000}@media(prefers-color-scheme:dark){#unsyncbar.warn{background:#3a2f0a;color:#f0d060;border-color:#8a6d00}}#unsyncbar button{margin-left:8px;cursor:pointer;border:1px solid currentColor;background:transparent;color:inherit;border-radius:7px;padding:3px 10px;font-weight:700;font-size:12px}#unsyncbar button:disabled{opacity:.6;cursor:default}</style>
+<div class="wrap">
+  <header>
+    <div class="tabs" role="tablist">
+      <button class="tab" id="tabA" role="tab" aria-selected="false">리더보드</button>
+      <button class="tab" id="tabB" role="tab" aria-selected="true">결과 보기</button>
+      <span class="note" id="note"></span>
+      <span class="syncbox" id="syncbox" hidden><span class="synclbl">검수자</span><input type="text" id="reviewer" placeholder="이름 입력" aria-label="검수자 이름"><button type="button" id="syncAll">저장</button><span class="syncstat" id="syncstat"></span></span>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="catnav"><a href="../../index.html">◀ 전체 목록</a><span class="cn-ord">추가 16/16</span><span class="cn-cur">4.1.1 가구</span><a href="cv15.html">◀ 이전</a></div>
+    <div id="unsyncbar" class="unsync"></div>
+    <div class="tools">
+      <input type="search" id="q" placeholder="상품명 검색…" aria-label="상품명 검색">
+      <button type="button" id="expJson">메모 JSON 내보내기</button>
+      <button type="button" id="expCsv">메모 CSV 내보내기</button>
+      <label class="imp">메모 가져오기 (JSON/CSV)<input type="file" id="impFile" accept=".json,.csv,application/json,text/csv" hidden></label>
+      <button type="button" id="helpBtn">❔ 용어 설명</button>
+      <span class="status" id="status"></span>
+      <span class="tagsum" id="tagsum"></span>
+    </div>
+  </header>
+  <main>
+    <section class="pane" id="paneA"><div class="lbwrap"><table class="lb"><thead id="lbhead"></thead><tbody id="lbbody"></tbody></table></div></section>
+    <section class="pane on" id="paneB">
+      <div class="cxhead" id="cxhead"></div>
+      <div id="cxscroll"><div id="cxspacer"></div></div>
+    </section>
+    <aside class="detail" id="detail"></aside>
+  </main>
+</div>
+<div id="help"><div class="hbox">
+  <div class="hbar"><b>용어 설명</b><span class="hhint">바깥 클릭 · ESC로 닫기</span><button type="button" id="helpClose">✕</button></div>
+  <div class="hbody">
+    <h3>리더보드 (한 행 = 한 실행/모델)</h3>
+    <table>
+      <tr><td>model</td><td>모델 (provider/모델명)</td></tr>
+      <tr><td>think</td><td>추론(reasoning) 강도 설정</td></tr>
+      <tr><td>shuf</td><td>후보 순서 셔플 여부 (1=셔플, 0=원본 rank순)</td></tr>
+      <tr><td>ens</td><td>앙상블 크기 = 한 샘플당 투표에 참여한 멤버(추론) 수</td></tr>
+      <tr><td>N</td><td>실제 채점된 샘플 수</td></tr>
+      <tr><td>개별%</td><td>멤버 개별 정확도 평균 — 투표 전, 멤버 하나하나의 평균 정답률</td></tr>
+      <tr><td>앙상블%</td><td>멤버 다수결로 뽑은 <b>최종 답</b>의 정확도 (기본 정렬 기준)</td></tr>
+      <tr><td>oracle%</td><td>멤버 중 <b>하나라도</b> 맞힌 비율 — 앙상블이 이론상 도달 가능한 상한</td></tr>
+      <tr><td>Δv-m</td><td>앙상블 − 개별. 투표가 개별 평균 대비 올린 폭 (양수면 투표 이득)</td></tr>
+      <tr><td>base%</td><td>후보 1순위(#0)가 정답인 비율 = 모델 없이 <b>후보1위만</b> 답으로 썼을 때의 성능</td></tr>
+      <tr><td>lift</td><td>앙상블 − base. 모델 선택이 후보1위 단독 대비 개선한 폭 (0 이하면 모델 이득 없음)</td></tr>
+      <tr><td>맞힘 / 틀림</td><td>정답 / 오답 개수</td></tr>
+      <tr><td>none</td><td>무응답 개수 — 멤버가 기권(NONE)했거나 다수결 불성립</td></tr>
+      <tr><td>err</td><td>에러 개수 = parse_fail + refusal + truncated + api_error</td></tr>
+      <tr><td>$합계 / $/맞힘</td><td>총 API 비용 / 정답 1건당 비용 (USD)</td></tr>
+      <tr><td>p50ms</td><td>응답 지연 중앙값 (밀리초)</td></tr>
+    </table>
+    <p class="hnote">관계: <b>개별% ≤ 앙상블% ≤ oracle%</b> 가 정상. <b>lift &gt; 0</b> 여야 모델을 쓰는 의미가 있음.</p>
+
+    <h3>결과 보기 (한 행 = 한 샘플, 한 열 = 한 실행)</h3>
+    <table>
+      <tr><td>✓/실행</td><td>그 샘플을 맞힌 run 수 / 실행된 run 수. 작을수록 어려움 (0=전 모델 오답)</td></tr>
+      <tr><td>📝</td><td>메모 또는 판정 태그가 있는 샘플</td></tr>
+      <tr><td>GT</td><td>✅=GT 후보를 하나 이상 선택(확인)한 샘플. 툴바 "GT 미확인만" 칩으로 남은 것만 볼 수 있음</td></tr>
+      <tr><td>정답#</td><td>정답의 후보 순위. #0=1위, <b>없음</b>=정답이 후보 목록에 없음(후보군에 없음)</td></tr>
+      <tr><td>셀 #rank</td><td>그 run이 고른 후보의 후보 순위 (#0=1위). 색=정오, leaf id는 hover</td></tr>
+    </table>
+    <p class="hnote">툴바의 <b>검수 X / N</b>은 진행률(판정·URL·메모 중 하나라도 남긴 샘플 수). <b>미검수만</b> 칩으로 남은 것만 보고, 상세에서 <b>n</b> 키로 다음 미검수로 건너뜁니다. 작업 후 <b>메모 CSV 내보내기</b>로 저장하세요 — 툴바에 마지막 내보내기 상태가 표시됩니다.</p>
+
+    <h3>샘플 상세 (샘플 클릭 시)</h3>
+    <table>
+      <tr><td>후보 순위</td><td>후보군 내 순위 (#0=1위). 목록은 순위 순 정렬</td></tr>
+      <tr><td>N표</td><td>그 후보를 고른 모델 수</td></tr>
+      <tr><td>후보 펼침</td><td>후보를 클릭하면 그 후보를 고른 모델의 근거·비용이 아래로 펼쳐짐</td></tr>
+      <tr><td>정답 (#N)</td><td>정답 leaf와 그 후보 순위</td></tr>
+      <tr><td>정답 vs 모델 합의 설명문</td><td>정답과 가장 많이 고른 후보의 카테고리 설명을 나란히 비교 (판단이 갈릴 때만 표시)</td></tr>
+    </table>
+
+    <h3>리뷰 판정 태그</h3>
+    <table>
+      <tr><td>정답오류</td><td>정답이 명백히 잘못 지정됨</td></tr>
+      <tr><td>정답애매</td><td>정답이 틀렸다고 단정은 어려우나 논쟁 여지 있음</td></tr>
+      <tr><td>정보부족</td><td>상품명/이미지에 정답을 유추할 단서가 부족 (성별·연령·해외직구 등)</td></tr>
+      <tr><td>모델오류</td><td>입력 정보는 충분한데 모델이 잘못 판단</td></tr>
+      <tr><td>기타</td><td>위 유형에 해당하지 않거나 추가 확인·논의가 필요한 경우</td></tr>
+    </table>
+    <p class="hnote">판정 태그·실제 상품 URL·메모는 브라우저에 자동 저장됩니다. "메모 CSV 내보내기"로 취합, "메모 가져오기(JSON/CSV)"로 병합할 수 있습니다.</p>
+
+    <h3>GT 확인</h3>
+    <p class="hnote">후보 카드 왼쪽 □를 클릭하면 그 후보를 GT로 선택합니다. <b>클릭한 순서대로</b> 우선순위가 매겨지고(1, 2, 3…),
+      다시 클릭하면 선택 해제됩니다. 기존 정답이 맞다고 생각하면 "정답" 배지가 붙은 카드 하나만 선택하면 되고,
+      후보 목록에 정답이 아예 없다고 판단되면 목록 맨 아래 "후보에 없음 / 다른 정답"을 선택하세요.</p>
+
+    <h3>단축키 (샘플 상세 열림 상태)</h3>
+    <table>
+      <tr><td>j / k · ↑↓←→</td><td>이전/다음 샘플로 이동</td></tr>
+      <tr><td>i</td><td>상품 이미지 확대 / 다시 누르면 닫기</td></tr>
+      <tr><td>1 ~ 5</td><td>판정 태그 토글 (1=정답오류 … 5=기타, 칩 순서)</td></tr>
+      <tr><td>m</td><td>메모 입력창으로 포커스</td></tr>
+      <tr><td>n</td><td>다음 미검수 샘플로 이동</td></tr>
+      <tr><td>ESC / q</td><td>이미지·설명창·상세 닫기</td></tr>
+      <tr><td>?</td><td>이 용어 설명 열기/닫기</td></tr>
+    </table>
+  </div>
+</div></div>
+<script type="application/json" id="data">{"results_root": "/Users/jwcho/Codes/llm-api-research/results/20260720-072632_xcheck3_board", "n_runs": 1, "n_samples": 8, "embedded_samples": 8, "truncated": false, "img_embedded": 1704, "img_skipped": 2, "notes": {"0c975419db638b347d43009c257ea18a006e6e935ceaddb1a8c14dd06febb98d": "[판정] 모델오류\n[GTC] __none__\n1. 정보부족 - 상품명만 보고 성별을 확정하기 어렵 \n2. 브랜드에 의한 편향 가능성 - 헌터 브랜드는 여성용 레인부츠 라인에서 많이 언급됨\n3. 후보목록 - 공용레인부츠 후보가 없음", "0e166c3b4ee7bb9269eb6a3a5725b71d2a1df0d475918671e5fd90cdb0eacce6": "[판정] 정답오류\n[GTC] 69684\n", "18fa56288bd3e282ebc285874a787aa016ee97dbcc542f998141b5d6ce1ef8e1": "[판정] 정답오류\n[GTC] 42621\n", "238de35281bb6b27379d3c40efced2a7ac02e80fec868c6b188447002c7ccf75": "[판정] 정답오류\n[GTC] 80987\n", "2dd1408029526437a6a727d039667f9d647f5f0255b626730b3fcfdbb999298a": "[판정] 정답오류\n[GTC] 69885\n", "39a0c181b445cdaf7d605a2902bfbebcf98e22c4d6f64bc9681242f2729bd158": "[판정] 정답오류\n[URL] https://www.lotteon.com/p/product/LO2061610648?sitmNo=LO2061610648_2061610649&ch_no=100065&ch_dtl_no=1000030&entryPoint=pcs&dp_infw_cd=CHT&NaPm=ct%3Dmrh3dnhs%7Cci%3D56d1ca9021fe77597931dfbca55ff9451d632186%7Ctr%3Dslsl%7Csn%3D1243359%7Chk%3Da06c20406b0b4df111e2b9167efebef78c02d870\n[GTC] 42615\n", "496567cdb551961fe560791885c1f316b9fc24ab873216faa10b66f28f5f9e9f": "[GTC] __none__\n도메인 특성을 살리지 못함 - AD3E는 비타민 A, D3, E 복합 비타민 조합을 의미하지만, 실제 시장에서는 가축/가금류용 비타민제 및 사료첨가제 제품명으로 많이 사용 & 우진비앤지(주) 또한 동물용 의약품, 동물용 사료, 동물용 조제식품을 주력으로 하는 동물 헬스케어 기업", "5dadc5a884fcfba8b73c64ed33c1663aaee5969a8b81588468e630899d89a46b": "[판정] 모델오류\n[URL] https://www.11st.co.kr/products/9152215519?NaPm=ct%3Dmrh3y228%7Cci%3D9ffe55212acbd8d72d4730ce81bdc51be640b812%7Ctr%3Dslsl%7Csn%3D17703%7Chk%3D9a012594e7a7b1170c05c60cf4768b6a907b1bc5&utm_term=&utm_campaign=%B3%D7%C0%CC%B9%F6pc_%B0%A1%B0%DD%BA%F1%B1%B3%B1%E2%BA%BB&utm_source=%B3%D7%C0%CC%B9%F6_PC_PCS&utm_medium=%B0%A1%B0%DD%BA%F1%B1%B3\n모델이 오분류하긴 했지만 주어진 정보와 후보 구조를 고려하면 납득 가능한 판단\n1. 이미지가 상하의 세트처럼 구성되어 있음\n2. 후보리스트에 상의 세트 후보 존재하지 않음", "65a4c643e9f3c630c18feea1317da9c23e98063950ce7910cd1a82dd037608ea": "[판정] 정답오류\n", "69412a10ed7e72da0373c908": "[판정] 모델오류, 정보부족\n섬유유연제라는 힌트 부족 ", "69708e5942be7118c0cf780f": "[판정] 정답오류\n", "69712c35864235339c1c6f1f": "[판정] 정답오류\n", "69712df0864235339c1d51fb": "[판정] 모델오류\n", "6971335f864235339c1f4c47": "1. 점착 청소포와 세정티슈를 구분하지 못한 것으로 보임\n2. 후보목록문제 - 점착 청소포 후보 존재하지 않음 ", "6971374d864235339c20761d": "[판정] 정답오류\n", "69713b2b864235339c21a223": "[판정] 모델오류\n1. \"양말세트\"라는 단어를 강하게 잡고 있는 것 같음 - 구성품 중 가디건 무시 \n2. 대상연령/ 도메인정보 미활용 - 에뜨와라는 브랜드가 영유아/키즈 중심이라는 도메인정보 & 이미지 상으로도 아이 사이즈 니트라는 시각적 신호 제대로 반영X", "69713d0a864235339c2225b3": "[판정] 정답오류\n", "6971443a864235339c23def7": "[판정] 모델오류, 정답오류\n[URL] https://www.lfmall.co.kr/app/product/ELU9XX01268?af=DN01&utm_source=pc_shopping.danawa&utm_medium=cps&utm_campaign=sale&service_id=estimatedn\n영유아동, 남녀공용, 양말세트 ", "69714608864235339c245fac": "[판정] 정답오류\n", "6971473f864235339c24b17f": "[판정] 정답오류\n", "697149e7864235339c2560fb": "대상 연령 도메인 반영 못함 - 에뜨와(영유아)", "69714db7864235339c2650a0": "[판정] 모델오류\n", "697150f3864235339c27207c": "[판정] 정답오류\n", "69715f7e864235339c2a58c4": "[판정] 정답오류\n패션의류잡화 > 영유아동 신발/잡화/기타의류(0~17세) > 여아신발 > 여아 아쿠아슈즈", "697173b1864235339c2d333f": "성별 표기는 공용이지만, 핑크 호피 패턴과 여아 모델 이미지 등으로 인해 디자인/연출이 여아용에 가깝게 보였고 모델이 이를 여아 비치가운으로 해석한 것으로 보임.", "6971dbf59dc886783f51122b": "[판정] 정답오류\n", "6971fd1062cd68af57e6918e": "[판정] 정답오류\n", "697256b351b33d3813b23bd9": "[판정] 모델오류, 정답애매\n카테고리 설명문 수정 제안 - 현재 워시백/세면백 설명문이 ‘세면도구 수납을 위한 칸 구성’을 필수 요소처럼 서술하고 있어 단일 칸 구조의 세면 파우치까지 포괄하기에는 정의가 다소 좁게 느껴짐.", "6972af85d82f1e847d9208d4": "[판정] 정답오류\n", "6972c09ed82f1e847d93f272": "[판정] 모델오류\n모델이 체인계열 부품이라는 것은 제대로 보았지만 체인본체 vs 체인 부속까지 세분화하는 기준을 잘 적용하지 못한 것으로 보임", "6972ce6fd82f1e847d95b60e": "[판정] 모델오류\n모델이 겐조키즈의 품번 규칙을 학습하지 못함 \n* 300번대 계열은 남아 또는 공용, 400번대 계열은 여아", "6972cf33d82f1e847d95d070": "[판정] 정답오류\n", "6972ddcbd82f1e847d966b4f": "[판정] 정답오류\n영유아동, 남녀공용, 파자마 세트 \n영유아동이 더 적절할 것이라 판단한 이유는 해당상품이 키즈와 주니어 사이즈가 모두 나오는 통합 상품이기 때문 ", "6972e71451b33d3813d4acd8": "[판정] 모델오류\n", "6972ec58d82f1e847d981ce2": "[판정] 정답오류, 모델오류\n패션의류잡화 > 주니어 의류(9~17세) > 여아의류 > 바지/레깅스 > 여아 청바지", "6972ec88d82f1e847d9826a1": "[판정] 모델오류\n주니어, 남녀공용, 야구점퍼/스타디움", "69732d9df3b0cb544a501200": "[판정] 정답오류\n남녀공용 아동용으로 디자인되었으나 여아들이 많이 선호하는 패턴이긴함", "69732ec7f3b0cb544a503f56": "[판정] 정답오류\n", "6973401cf3b0cb544a54f4ba": "[판정] 모델오류\n", "6973888bf3b0cb544a673bf4": "[판정] 정답오류\n생활용품 > 방향/탈취/제습/살충 > 방향제 > 화장실용 방향제", "6973921ef3b0cb544a6919d2": "[판정] 정답오류\n공식적인 분류로는 남녀공용 제품이지만 여아들이 더 많이 선호하긴함", "6973b0c81f4e38533cb60b1c": "[판정] 모델오류\n", "6973cf4951b33d3813978620": "[판정] 정답오류, 모델오류\n액체향수아님. 디퓨저, 캔들, 향수 등을 직접 만들 때 사용하는 화장품 및 방향제용 원료", "6973d5001f4e38533cb8538b": "[판정] 정답오류\n", "6973d5961f4e38533cb86d8c": "[판정] 정답오류, 모델오류\n키즈, 여아, 등산/아웃도어 플리스자켓", "6973def51f4e38533cb8d921": "[판정] 정답오류\n", "6973df6d1f4e38533cb8f0a6": "[판정] 모델오류\n주니어, 남녀공", "6973e2f91f4e38533cb9a28d": "[판정] 정답오류\n", "6973f0b01f4e38533cba8fe6": "[판정] 정답애매\n상품의 공식 권장 사용 연령은 만 4세 - 14세로 현재 후보군에서 분류하기 애매함", "6973f83d1f4e38533cbb20df": "[판정] 정답오류\n", "697413901f4e38533cbd4097": "[판정] 정답오류\n", "6974377e1f4e38533cc8e630": "[판정] 정답오류\n", "6974c1c81f4e38533cee7d8f": "[판정] 모델오류\n", "6976052fc727e88c78d4f348": "[판정] 정답오류\n", "69762cc4c727e88c78d74038": "[판정] 정답오류\n여성우양산겸용을 모델이 선택한 이유는 여성용 신호를 특별히 탐지해서라기보다 ‘우산 겸 양산, UV차단, 암막’이라는 기능에 정확히 맞는 우양산겸용 후보가 여성패션 트리 아래에만 존재했기 때문으로 보임. \n상품 자체는 남녀 공용 사용이 가능하지만 핑크 컬러 암막 우양산이 실제로 여성 소비자 선호가 높으므로 모델 합의를 선택함", "69763929c727e88c78d801fa": "[판정] 기타\n판단불가, 텍스트는 팔찌인데 이미지는 목걸이처럼 보임. 검색하여도 추가정보가 나오지 않음", "6976556fc727e88c78da2710": "[판정] 정답오류\n", "6976741fc727e88c78dc76a8": "[판정] 정답애매\n정장과 캐주얼에 모두 매치하기 좋은 하이브리드(범용) 벨트", "69768dffc727e88c78de60b4": "[판정] 정답오류\n", "6976bd86c727e88c78e20b5b": "[판정] 정답오류\n", "69772c8851b33d3813d6b36d": "[판정] 모델오류\n", "69784009ed7981b38fc48085": "[판정] 정답오류\n", "69788111ed7981b38fc96cee": "[판정] 정답오류\n", "6978caaebc0d9cd7a8b4d994": "[판정] 정답오류\n", "6978ee77ed7981b38fcf83af": "[판정] 정답오류\n", "6978fc4ded7981b38fd0851a": "[판정] 정답오류\n", "697901eebc0d9cd7a8b68c8e": "[판정] 정답오류\n", "697901eebc0d9cd7a8b6ad29": "[판정] 정답오류\n", "697901efbc0d9cd7a8b6c4c5": "[판정] 모델오류\n상품명에 사용된 '오란다'는 전통과자 재료를 의미하는데 모델이 이를 금붕어 품종면 '오란다 금붕어'로 잘못 해석함", "697939acbc0d9cd7a8b8612a": "[판정] 모델오류\n", "69793b39ed7981b38fd43595": "[판정] 기타, 정보부족\n판단불가\n캠퍼 픽스 부츠는 남녀공용 단일 라인으로 나오는 제품 X \n남성용 품번과 여성용 품범 분리되어 출시됨\n하지만 해당 텍스트, 이미지, 링크에서도 품번에대한 정보를 알 수 없었음", "69795d38ed7981b38fd76b30": "[판정] 정답오류, 모델오류\n", "6979d61fed7981b38fde2c9d": "[판정] 정답오류, 모델오류\n성별정보 부족 (사이즈 옵션에 따라 M은 여성, L은 남성 가능) ", "69885218e7a65f030937a894": "[판정] 정답오류\n", "69899aefa2b733dc47ce4f5a": "[판정] 정답애매\n헤어랑 바디 둘다가능 ", "698ad76dd188d9dbef4ab2d3": "[판정] 정답오류\n패션의류잡화 > 남성패션 > 남성화 > 운동화/스니커즈 > 남성패션운동화", "698b1556c455bbfe5dfcd22e": "[판정] 모델오류\n", "698b1b65c455bbfe5dffcbb4": "[판정] 정답오류\n", "698b23e6c455bbfe5d0511ab": "[판정] 정답오류\n", "698ba5dcc455bbfe5d1804fa": "[판정] 정답오류\n", "698c29e7c455bbfe5d23f32f": "[판정] 모델오류\n모델이 댕글참을 참장식으로 간주한 것 같음", "698c3fa7c455bbfe5d2b8772": "[판정] 정답오류\n", "698c4277c455bbfe5d2c583d": "[판정] 정답오류, 모델오류\n패션의류잡화 > 여성패션 > 여성잡화 > 모자 > 여성털/방울모자", "698ca393abe15c3bb37fb963": "[판정] 모델오류\n유아/출산 카테고리로 먼저 기울었을 가능성 ", "698cab44f84eeb9c1206c4ef": "[판정] 모델오류, 정보부족\n성별 정보 부족", "698dace417b375fe40b74c51": "[판정] 정답오류\n식품 > 건강식품 > 헬스/다이어트식품 > 다이어트식품 > 기타다이어트식품", "698dbc7652b5b015bf3c1b1b": "[판정] 모델오류\n", "698de3f8ab264089c7f40a17": "[판정] 정답오류\n", "698df066ab264089c7f53afd": "[판정] 정답오류\n베이비 의류, 목욕/수면가운", "69911ab42f22683d7195dc34": "[판정] 정답오류\n", "6992a2012f22683d71a760c4": "[판정] 정답오류\n", "69959ccdfa061fbcaef82486": "[판정] 모델오류\n상품명에 커피가 존재해도 업소용 전기포트 패턴과 더 많이 겹친다고 판단한것 같음", "6995b6b7fa061fbcaefa68b8": "[판정] 모델오류\n", "6995d0b0fa061fbcaefd7b21": "[판정] 모델오류\n", "6995dfb3c15652113f927a27": "[판정] 정답애매\n모델과 정답 둘다 맞는 분류같음", "6996ec6956cfb51638f1c3f9": "[판정] 정답오류\n", "69996a0cb8a92f5585cf6570": "[판정] 정답오류\n", "699dd54151b33d38132eb52b": "[판정] 모델오류\n", "699dd84951b33d38133a6b2d": "[판정] 정답오류\n", "699dd88251b33d38133b31ca": "[판정] 정답애매\n모델 정답 둘다 맞는 분류 같음\n", "699dd88e51b33d38133b6444": "[판정] 정답오류\n", "699dd8d151b33d38133c7235": "[판정] 정답애매\n해당 상품은 장난감 본체 안에 스틱캔디가 함께 포함된 복합상품으로 현재 후보리스트에 있는 카테고리만으로 어느곳에 분류되어야할지 애매함. ", "699dd95751b33d38133e44fa": "[판정] 모델오류\n", "699dd9c351b33d38133fd3de": "[판정] 정답오류\n", "699ddda451b33d381356367c": "[판정] 정답오류\n", "699de64d51b33d3813819dff": "[판정] 정답오류\n", "699de98451b33d38138e50be": "[판정] 정답오류\n", "699ded3651b33d3813a4bf4c": "[판정] 정답오류\n완구/취미 > 신생아/영아완구 > 악기놀이 > 기타악기 완구", "699def9d51b33d3813b186cb": "[판정] 모델오류\n해당 상품은 상품명에 ‘성인용비비탄총’키워드와 이미지 내 19세 표기가 노출돼 모델이 19세 이상 성인용 BB탄총 본체로 오인해 ‘전동건/가스건(19세 이상)’ 카테고리를 선택한 것으로 보임.\n그러나 실제 제품은 청소년용(만 14세 이상) 제품으로 해당하여 상품명의 마케팅용 키워드와 실제 용도의 괴리를 모델이 구분하지 못한 사례로 판단", "699df1e951b33d3813be4f11": "[판정] 모델오류, 정답애매\n카테고리 설명문 수정 제안: 현재 ‘탁구대’ 정의에 미니형까지 포함되어 있어 미니형 탁구대는 탁구대와 미니탁구 중 어디로 분류해야할지 모호", "699df79e51b33d3813e19df1": "[판정] 정답애매\n", "699dfb8151b33d3813f82e92": "[판정] 정답오류\n", "699e02c051b33d381325f65c": "[판정] 정답오류\n가전/디지털 > TV/영상가전 > 홈시어터 악세사리 > 셋톱박스", "699e0ed851b33d38137453e8": "[판정] 정답오류\n", "699e138151b33d3813939e51": "[판정] 모델오류\n", "699e1a1251b33d3813b8e65e": "[판정] 정답오류\n", "699e212451b33d3813de11df": "[판정] 정답오류\n", "699e2c8351b33d38131930ce": "[판정] 정답오류\n", "699ff8e6137b1476770d539b": "[판정] 정답오류\n뷰티 > 뷰티소품 > 헤어소품 > 헤어클립/집게", "69b123f3c5a77adf6d88f64d": "[판정] 정답애매\n모델과 정답 모두에 속하는 제품임. 해당 제품은 한 가지 성분만 들어있는 단일제가 아니라 복합적으로 들어가 있기 때문 ", "69b16de8e1544bbae4340f73": "[판정] 정답오류\n", "69b16de8e1544bbae4345438": "[판정] 정답오류\n스포츠/레져 > 수영/수상스포츠 > 래쉬가드 > 주니어용(9~17세) > 남아 래쉬가드", "69b2d80697a22e1632b944d8": "[판정] 정보부족\n모델이 미니카라는걸 알아차릴 단서가 없음  ", "69b407883c5ab3d5f0351560": "[판정] 정답오류\n", "69b4088a3c5ab3d5f04556c7": "[판정] 정답오류\n", "69b409cd3c5ab3d5f05bbdeb": "[판정] 정답애매\n", "69b40aa23c5ab3d5f06d9122": "[판정] 정답오류\n패션의류잡화 > 영유아동 신발/잡화/기타의류(0~17세) > 남아 스포츠/한복 외 > 수영복/비치웨어 > 남아 쓰리피스 수영복", "69b40d493c5ab3d5f09568f8": "[판정] 정답오류\n", "69b48ee33c5ab3d5f0a8b44a": "[판정] 정답오류\n", "69b541593c5ab3d5f0c6ee53": "[판정] 정답오류\n", "69b590ec3c5ab3d5f0f828a0": "[판정] 정답애매\n카테고리 설명문 수정 제안: ‘조개’와 ‘기타어패류’ 카테고리 설명이 중복됨 (바지락, 꼬막, 전복, 굴,가리비, 홍합)", "69b59f583c5ab3d5f0fb02da": "[판정] 정답오류\n", "69b5b6e23c5ab3d5f0c1df05": "[판정] 정답애매, 모델오류\n남녀공용임, 다만 키즈와 주니어 모두 출시된 제품임", "69b5c3f53c5ab3d5f08a4f09": "[판정] 정답오류\n반려/애완용품 > 강아지/고양이 겸용 > 영양제/건강보조제 > 기타 영양제", "69b5d5f03c5ab3d5f067deeb": "[판정] 정답애매\n", "69b5df8f3c5ab3d5f0df9295": "[판정] 정답오류\n", "69b5f7863c5ab3d5f03ec74e": "[판정] 정답애매\n", "69b7fba136caaa77c227b487": "[판정] 정답오류\n", "69b8250c36caaa77c22c1686": "[판정] 정답오류\n", "69b9fe56099a678892458524": "[판정] 정답오류\n", "69ba9fec4a7fac2684ff6b2e": "[판정] 정답오류\n가장 오른쪽 제품만 어린이가 안심하게 쓸 수 있는 제품. ", "69baf9aba826be7e40a2fe7d": "[판정] 정답오류\n", "69bbd763697b926388ff4c0b": "[판정] 정답오류\n", "69bc1474697b92638801844c": "[판정] 정답오류\n", "69bc36c2697b92638803bb7f": "[판정] 정답오류\n", "69bcc485ef647757ac116cc6": "[판정] 정답오류\n", "69bde225a5b80af61d9a395c": "[판정] 정답오류\n패션의류잡화 > 남성패션 > 남성의류 > 점퍼 > 남성 패딩/다운패딩조끼", "69be0fc9a5b80af61d9d73a8": "[판정] 정답오류\n", "69be1679a5b80af61d9e0524": "[판정] 정답오류\n▾패션의류잡화 > 남성패션 > 남성의류 > 등산/아웃도어 의류 > 남성 등산/아웃도어 조끼\n", "69bf0699a5b80af61daeaa13": "[판정] 정답오류\n", "69c02068a5b80af61dc12a7c": "[판정] 정답오류\n", "69c09c1ca5b80af61dc89864": "[판정] 정답오류\n", "69c110eda5b80af61dd1042f": "[판정] 정답오류\n", "69c15150bb9d1248e821ccaa": "[판정] 정답오류\n", "69c15dc0e4ffb6e8c3b92bc6": "[판정] 정답오류\n", "69c174eb23fe8cb78ee8eac4": "[판정] 정답오류\n", "69c19b6189d8ea604929f3e5": "[판정] 정답오류\n", "69c1d3a489d8ea60492f2408": "[판정] 정답오류\n", "69c3e46b3c5ab3d5f02d3dc5": "[판정] 정답오류\n", "69c3e52a3c5ab3d5f04a8170": "[판정] 정답오류\n", "69c3e6093c5ab3d5f0586f54": "[판정] 정답오류\n", "69c3e7763c5ab3d5f06b7c8b": "[판정] 정답오류\n", "69c3e7873c5ab3d5f06c09a2": "후보 문제: 데이지체인 소품걸이용 전용 카테고리가 없어 모델이 해먹/침대 설치소품으로 분류한 것으로 보임. \n실제로는 소품 걸이가 기본 용도지만, 해먹 스트랩으로도 쓰여 이번 분류가 완전히 엉뚱한 선택은 아님.", "69c3e8173c5ab3d5f0735d09": "[판정] 정답오류, 모델오류\n후보 목록 문제", "69c3e8393c5ab3d5f0753607": "[판정] 정답오류\n", "69c3e8753c5ab3d5f0787413": "[판정] 정답오류\n", "69c3e93d3c5ab3d5f084272b": "[판정] 정답오류\n패션의류잡화 > 영유아동 신발/잡화/기타의류(0~17세) > 남녀공용잡화 > 공용 패션마스크/스트랩 > 마스크", "69c3ea443c5ab3d5f09750af": "[판정] 정답오류\n[URL] https://www.lotteimall.com/goods/viewGoodsDetail.lotte?goods_no=3057865208&chl_dtl_no=&chl_no=169230\n스포츠/레져 > 골프 > 골프잡화 > 골프모자", "69c3ead83c5ab3d5f0a19c31": "[판정] 정답오류\n", "69c63e3d3c5ab3d5f09559be": "[판정] 정답오류\n", "69c63ea03c5ab3d5f0a0d634": "[판정] 정답오류\n", "69c667823c5ab3d5f083200c": "[판정] 정답오류\n", "69ca7b9d3c5ab3d5f05cd8ce": "[판정] 정답오류\n", "69ca7b9e3c5ab3d5f05d1526": "[판정] 정답오류\n", "69ca7ba73c5ab3d5f05e5d76": "[판정] 정답오류\n", "69ca7bc13c5ab3d5f0614440": "[판정] 정답오류\n", "69ca7da13c5ab3d5f0902070": "[판정] 정답오류\n", "69ca7f333c5ab3d5f0b9fb65": "[판정] 정답오류\n", "69ca80523c5ab3d5f0dc6833": "[판정] 정답애매\n키즈&주니어 라인 전부가능 ", "69ca83633c5ab3d5f02fd191": "[판정] 정답오류\n", "69ca88073c5ab3d5f09ee943": "[판정] 정답오류\n", "69ca89ff3c5ab3d5f0d6de2a": "[판정] 정답애매\n", "69ca8bd73c5ab3d5f00d2a94": "[판정] 정답오류\n", "69ca95708dd5d4c6d27c786a": "[판정] 정답오류\n", "69ca9e1c3c5ab3d5f0d4d6b7": "[판정] 정답오류\n", "69caa2463c5ab3d5f04de748": "[판정] 정답오류\n", "69caa2b03c5ab3d5f058d977": "[판정] 정답오류\n", "69cab3fe3c5ab3d5f0e81f58": "[판정] 정답애매\n", "69cabbca3c5ab3d5f0d3f9a2": "[판정] 정답오류, 모델오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 모자 > 남녀공용비니", "69cac42e3c5ab3d5f0ada2a8": "[판정] 정답오류\n", "69cb36d98dd5d4c6d286828a": "[판정] 정답애매\n", "69cb71cd8dd5d4c6d28cd241": "[판정] 정답오류\n", "69cbd47e8dd5d4c6d2947e58": "[판정] 정답오류, 모델오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 캐주얼 의류 > 스포츠의류 > 스포츠 자켓/집업 > 공용 스포츠 바람막이", "69cc00028dd5d4c6d2980798": "[판정] 정답오류\n", "69cca2128dd5d4c6d2a40a43": "[판정] 정답애매\n디자인은 '남성 봄가을 코트/트렌치'에 가깝지만 기능은 '남성 등산/아웃도어 바람막이/방수자켓'", "69ce44033c5ab3d5f049a2b3": "[판정] 정답오류\n", "69ce47743c5ab3d5f06c68b5": "[판정] 정답오류\n", "69ce4cb33c5ab3d5f0a24658": "[판정] 정답애매, 모델오류\n소동물, 소형조류용 이동장", "69ce4efa3c5ab3d5f0ba6ede": "[판정] 정답오류\n", "69ce501d3c5ab3d5f0c7186b": "[판정] 정답오류\n", "69ce51e73c5ab3d5f0dc8c42": "[판정] 정답오류\n", "69ce54313c5ab3d5f0f6c80e": "[판정] 정답애매\n", "69ce6ca73c5ab3d5f00f99c9": "[판정] 정답오류\n", "69ce705c3c5ab3d5f03d53c8": "[판정] 정답오류\n", "69ce73103c5ab3d5f05beaa2": "[판정] 정답오류\n", "69ce7acd3c5ab3d5f0ad6148": "[판정] 정답오류\n", "69ce7cdb3c5ab3d5f0c4d7dc": "[판정] 정보부족\n모델이 공용 맨투맨으로 본 이유는 입력된 정보 안에서 이 제품을 여아 전용이라고 단정할만한 신호가 거의 없고 디자인도 성별 중립적인 기본 맨투맨이었기 때문. 하지만 브랜드와 유통사 기준으로는 여아 라인으로 관리됨", "69ce812c3c5ab3d5f0f5cfe1": "[판정] 정답오류, 모델오류\n후보 목록 문제", "69ce827e3c5ab3d5f00555a4": "[판정] 정답오류\n", "69ce86c33c5ab3d5f03b18aa": "모델 전부 '공용' 범용 카테고리로 분류. 정답은 남아용이지만, 상품명·이미지에 이를 유추할 단서가 없음. → 입력만으로는 판단 불가.", "69cf103e3c5ab3d5f0eede91": "[판정] 정답애매\n", "69cf11f73c5ab3d5f0fef486": "[판정] 정답오류\n", "69d545aabc5ffde0962b60ae": "[판정] 정답오류\n", "69d547797278861a980826af": "[판정] 정답오류, 모델오류\n", "69d548939699c29a659fa13d": "[판정] 정답오류\n", "69d548eb6e6247382a7feb23": "[판정] 정답오류\n", "69d5f8b2c0271cd5cd2865a2": "[판정] 정답오류\n", "69d64febeaf89abcf6376ffe": "[판정] 정답오류, 모델오류\n[URL] https://www.musinsa.com/products/1624400\n패션의류잡화 > 남성패션 > 남성의류 > 스포츠의류 > 스포츠 티셔츠/나시 > 남성 스포츠 티셔츠", "69d6501c421fe66ebcfb1695": "[판정] 정답오류\n", "69d6501d421fe66ebc01d264": "[판정] 정답오류\n", "69d75ae03b44fb3b7895e8d0": "[판정] 정답오류\n", "69d75ae03b44fb3b7895ec6b": "[판정] 모델오류, 정답애매\n", "69d769a6a7a1ed919eeff472": "[판정] 정답오류\n", "69d77db9ef8944b400ee9477": "[판정] 정답애매\n패션의류잡화 > 여성패션 > 여성의류 > 원피스 > 여성 미디원피스(무릎길이)도 오류라 볼 수 없음\n하지만 해외직구로 분류하는게 더 알맞는다고 생각함", "69d7829fef8944b400f425fd": "[판정] 정답오류\n", "69d7874eddba5ccff9611405": "[판정] 정답오류\n", "69d78b999d6bacba63c9acb8": "[판정] 정답오류\n", "69d78bd19d6bacba63ca7050": "[판정] 정답오류\n", "69d78c749d6bacba63cbc196": "[판정] 정답오류\n", "69d78cc79d6bacba63cce9b0": "[판정] 정답오류\n", "69d78d6fb228398d8d01fd85": "[판정] 정답오류\n", "69d78db3b228398d8d02a410": "[판정] 정답오류\n", "69d78e439d29895aa5dd44a8": "[판정] 정답오류\n", "69d78f119d29895aa5de51b1": "[판정] 정답오류, 모델오류\n후보 목록 문제: 후보군 없음 ", "69d78fae9d29895aa5dfc3cc": "[판정] 정답오류\n", "69d78fc5b228398d8d051f15": "[판정] 정답오류\n", "69d78fc6b228398d8d058fad": "[판정] 정답오류\n", "69d78fc6b228398d8d06903c": "[판정] 정답오류\n", "69d79281b228398d8d08a207": "[판정] 정답오류\n", "69d792a59d29895aa5dffc13": "[판정] 정답오류\n", "69d79339b228398d8d0a1e6a": "[판정] 정답오류\n", "69d79446b228398d8d0c783e": "[판정] 정답오류\n", "69d794769d29895aa5e16e62": "[판정] 정답오류\n", "69d794769d29895aa5e19ffb": "[판정] 정답오류\n패션의류잡화 > 여성패션 > 파티복/우리옷(한복) > 우리옷(한복) > 여성 생활한복(개량한복)", "69d7953b9d29895aa5e2b35b": "[판정] 정답오류\n", "69d795829d29895aa5e3115d": "[판정] 모델오류\n패션의류잡화 > 여성패션 > 커버업 > 여성 후드/집업 커버업", "69d795839d29895aa5e39fec": "[판정] 정답오류\n", "69d7959bb228398d8d0fac14": "[판정] 정답애매\n", "69d7959bb228398d8d0fb167": "[판정] 정답오류\n", "69d795b1b228398d8d0fe603": "[판정] 정답오류\n", "69d7966c9d29895aa5e4e913": "[판정] 정답오류\n", "69d79baeadb059a0ee1bfc53": "[판정] 정답오류\n", "69d7a3626d22a5ef2f96e44a": "[판정] 정답오류\n", "69d7ab1a2b6f85282ed95ecb": "[판정] 정답오류\n", "69d7abcc2b6f85282edf6d39": "[판정] 모델오류, 정보부족\n상품명과 이미지에 탁구/러버/라켓 등 스포츠용품을 나타내는 직접적인 단어가 없고 ‘오메가 7 프로’라는 이름과 오메가 로고만 강조돼 있어, 모델이 이를 오메가 계열 지방산 보충제(건강식품) 패턴과 연결해 오메가3,6,9 카테고리를 선택한 것으로 보임", "69d7ac212b6f85282ee27837": "[판정] 정답오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 지갑 > 남녀공용머니클립", "69d7ac742b6f85282ee5bb63": "[판정] 정답오류\n", "69d7acb52b6f85282ee847e9": "[판정] 정답오류\n", "69d7b6047883158cd3f163e7": "[판정] 정답오류\n", "69d7c64cca9419b895404a21": "[판정] 정답오류\n", "69d7c9c00d0439388821331e": "[판정] 정답오류\n", "69d7c9c00d043938882181fb": "[판정] 정답오류\n", "69d7cbeb0d0439388822d4cf": "[판정] 정답오류\n", "69d7cbeb0d04393888230808": "[판정] 정답오류\n", "69d7cd390d0439388824513e": "[판정] 정답오류\n", "69d7cd470d04393888246e9b": "[판정] 정답오류\n", "69d7cf98f06a0efcfc79f1d0": "[판정] 정답오류\n", "69d7d033a0daa4bb2cd503eb": "[판정] 모델오류\n[URL] https://store.shopping.yahoo.co.jp/linkfast/onyone-onj97042-12.html?sc_e=sydr_eclist_pdlist-pdlist_ttl_statgue_30000013_30000013&__ysp=T05KOTcwNDI%3D\n", "69d7d033a0daa4bb2cd508a4": "[판정] 정답오류\n", "69d7d74fa0daa4bb2cd60013": "[판정] 모델오류\n", "69d7da41a0daa4bb2cd98689": "[판정] 정답오류\n", "69d7db136c172e2767ab3719": "[판정] 정답오류\n", "69d7eaaf60fa97893b13a26c": "[판정] 정답오류\n", "69d7ecb060fa97893b16d07f": "[판정] 정답오류, 모델오류\n패션의류잡화 > 여성패션 > 여성의류 > 여성 후드집업/집업류", "69d7ecb060fa97893b17a6d2": "[판정] 정답오류\n", "69d7f0b360fa97893b1c75a8": "[판정] 정답오류\n", "69d7f15960fa97893b1ec670": "[판정] 정답오류\n", "69d7f1a160fa97893b1f12d6": "[판정] 정답오류\n", "69d7f219798cf3968cd85649": "[판정] 정답오류\n", "69d7f26260fa97893b201cdf": "[판정] 정답오류\n", "69d7f26e60fa97893b203721": "[판정] 정보부족, 정답애매\n이미지와 상품명만으로는 이 코트가 빅사이즈 전용 상품인지까지는 확실히 말하기 어려움", "69d7f33760fa97893b220ddc": "[판정] 정답오류\n", "69d7f3f460fa97893b22faa0": "[판정] 정답오류\n", "69d7f4c4798cf3968cdd156e": "[판정] 정답오류\n해당상품은 남녀공용이며 패딩/다운점퍼, 항공점퍼/블루종 두 개의 카테고리에 전부 속할 수 있는 상품으로 보임\n", "69d7f4c4798cf3968cdd2126": "[판정] 정답오류\n", "69d7f4f2798cf3968cdd6702": "[판정] 정답오류\n", "69d7f537798cf3968cde8d3c": "[판정] 정답오류, 모델오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 벨트 > 남녀공용캐주얼벨트", "69d7f60d798cf3968ce0311c": "[판정] 정답오류\n", "69d7f6b5e67ef61d40ca25fe": "[판정] 정답오류\n", "69d7f6b5e67ef61d40cb2916": "[판정] 정답오류\n", "69d7f72b68380fc14eb4684b": "[판정] 정답오류\n", "69d7f793e67ef61d40ccfdd0": "[판정] 정답오류\n", "69d7f793e67ef61d40cd1336": "[판정] 정답오류\n", "69d873292b6f85282eba47d8": "[판정] 정답오류\n", "69d874482b6f85282ec6610f": "[판정] 모델오류\n모델이 “리트 빅타워 9700”을 완제품 본체가 아니라 ‘빅타워 케이스 단품’으로 오해함\n완제품 데스크톱 본체를 뜻하는 텍스트/이미지 신호(사양표, CPU/GPU 언급 등)를 발견하지 못했기 때문. ", "69d875db2b6f85282ed308e9": "[판정] 정답오류\n", "69d877d22b6f85282ee4667c": "[판정] 정보부족\n제품이 내부에 SSD가 들어간 모델인지 리퍼 HDD가 들어간 모델인지에 따라 카테고리 선택이 달라짐. ", "69d879662b6f85282ef33cfb": "[판정] 정답오류\n", "69d87a552b6f85282ef8e508": "[판정] 정답오류\n", "69d880192b6f85282e2860c2": "[판정] 정답오류\n", "69d882ca2b6f85282e38fea4": "[판정] 정답오류\n", "69d886de2b6f85282e54d4ec": "[판정] 정답오류\n", "69d8878e2b6f85282e5ad301": "[판정] 정답오류\n", "69d8881a2b6f85282e62630c": "[판정] 정답오류\n", "69d888472b6f85282e63d5e2": "[판정] 정답오류\n", "69d888ea2b6f85282e679ec1": "[판정] 모델오류, 정답오류\n패션의류잡화 > 키즈 의류(3~8세) > 남아의류 > 아우터 > 남아 바람막이 점퍼", "69d889092b6f85282e68a9f7": "[판정] 정답오류\n패션의류잡화 > 주니어 의류(9~17세) > 남녀공용의류 > 트레이닝복 > 공용 트레이닝 팬츠", "69d889272b6f85282e69bbeb": "[판정] 정답오류\n", "69d889572b6f85282e6bb5fd": "[판정] 정답오류\n", "69d889a32b6f85282e6e2cfa": "[판정] 정답오류\n", "69d889e42b6f85282e6fa501": "[판정] 정답오류\n", "69d88a072b6f85282e7075b4": "[판정] 정답오류\n패션의류잡화 > 베이비 의류/신발/잡화(~24개월) > 베이비의류 > 아우터 > 재킷/점퍼", "69d88a3a2b6f85282e71a6bc": "[판정] 정답애매\n여성 수면 양말임을 부정할 순 없음 ", "69d88a562b6f85282e7248f8": "[판정] 정답오류\n", "69d88ad92b6f85282e751d2f": "[판정] 정답오류\n패션의류잡화 > 베이비 의류/신발/잡화(~24개월) > 베이비의류 > 배냇저고리오", "69d88b812b6f85282e7afa4e": "[판정] 정답오류\n", "69d88c1e2b6f85282e7e9726": "[판정] 정답오류\n", "69d88cf42b6f85282e868c52": "[판정] 정답오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 모자 > 남녀공용페도라/중절모", "69d88d132b6f85282e87ac22": "[판정] 정답오류\n패션의류잡화 > 주니어 의류(9~17세) > 남녀공용의류 > 티셔츠 > 공용 후드티셔츠", "69d88dc32b6f85282e8c7b48": "[판정] 정답오류\n", "69d88ef32b6f85282e9446b2": "[판정] 정답애매\n", "69d88f7b2b6f85282e989f2c": "[판정] 정답오류\n", "69d88fb72b6f85282e9bfc81": "정답 맞음", "69c3e9c33c5ab3d5f08e4db7": "정답 맞음", "69d88fe02b6f85282e9debf8": "[판정] 정답오류\n", "69d890cc2b6f85282ea82e5c": "[판정] 정답오류\n", "69d891072b6f85282ea9c436": "[판정] 기타\n후보 목록 문제: 해당 상품은 키즈와 주니어 전부 가능. 따라서 영유아동 카테고리가 필요해 보임", "69d891762b6f85282eacc8f6": "[판정] 정답오류\n", "69d891bb2b6f85282eaeb6ec": "[판정] 정답오류\n", "69d892b82b6f85282eb5a82b": "[판정] 정답오류\n", "69d78ca2ada508de70d0e726": "[판정] 정답오류\n", "69d893072b6f85282eb83dbe": "[판정] 정답오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 우산 > 남녀공용5단우산", "69d893fd2b6f85282ec078ec": "[판정] 정답오류\n", "69d894d02b6f85282ec6f366": "[판정] 정답오류\n", "69d895602b6f85282ecaa893": "[판정] 정답오류\n", "69d895b22b6f85282eccc244": "[판정] 정답오류\n", "69d895d42b6f85282ecdbe50": "[판정] 정답오류\n", "69d896fb2b6f85282ed598cc": "[판정] 정답오류\n", "69d897c92b6f85282edb0323": "[판정] 정답오류\n", "69d898252b6f85282edd572f": "[판정] 정답오류\n패션의류잡화 > 여성패션 > 여성잡화 > 장갑 > 여성암워머", "69d899862b6f85282ee63669": "[판정] 정답오류\n", "69d89b552b6f85282ef8fb3f": "[판정] 정답오류\n", "69d89bca2b6f85282efc9510": "[판정] 정답오류\n", "69d89cfc2b6f85282e0743f9": "[판정] 정답애매\n", "69d8b29d3df06fd22caa05c3": "[판정] 정답오류\n", "69da7ac24adf2b1c16407b9e": "[판정] 정답오류\n", "69da7addd2f5f41a3f65fc98": "[판정] 정답오류\n", "69da7addd2f5f41a3f664540": "[판정] 정답오류\n", "69da7b134adf2b1c1640d0c7": "[판정] 정답오류\n", "69da7ba1d2f5f41a3f671d73": "[판정] 정답오류\n", "69da7cdfd2f5f41a3f6851d9": "[판정] 정답오류\n", "797207985855a1117d03cbfb01837eb0b3f6468a317b0102cc7c23704ff6dd1f": "[판정] 정답오류\n", "89aa2e681fb1f6adeccda96e36654ea643a06d6ac8b190b3ff76d15644df264d": "[판정] 정답오류\n", "96a3e6688060daa493b9b6387ee48f8d1c22b1c76c3f04f8404b2f8b7901c561": "[판정] 정답오류\n", "a31099b48a26a7429cefa902bc6ef04f4b0eeddd3acf3aa9f0d662f8781438e7": "[판정] 모델오류\n[URL] https://www.cmpsport.com/ww/girl-s-vest-in-light-softshell-31a5025\n", "a8c27dd7f02754cf2af8f214fb1db13779be3ea37fe824a3435132dc29a51c13": "[판정] 정답오류\n", "bb2e145f1ee63fe7667a108e20eb348d9af4c991f93b5f524bd5c54e440b2043": "[판정] 정답오류\n", "cb7dc5239119be0947d6ba53b853b6179861c4afd86a3c46895d0f771e39a17c": "[판정] 모델오류\n", "dd6cefa0b8b5b3afa485951cfa87e06a4bd6dc7bc38e7c02ffa3c29afac4a619": "[판정] 정답오류\n", "eb2ae09b10927f61deba4d7718a65aa18103b32b96357c00ab5af94cae7b5af5": "[판정] 정답오류\n", "f64fed4ade7a66bb669f12c82b07ecc8652ae1d4f2d276a30fde4147065763fc": "[판정] 정답오류, 모델오류\n후보 목록 문제: 후보군 없음 ", "https://thumbnail.coupangcdn.com/thumbnails/remote/657x657q90trim/image/vendor_inventory/5869/ad5b4883ab11b780fd6efbdd840b4c863d0d351688886e6cb89f10b02167.jpg": "[판정] 정답오류\n", "69712ec0864235339c1dab98": "[판정] 모델오류\n", "6971d0709a97638a60aa7154": "[판정] 정답오류\n패션의류잡화 > 여성패션 > 여성잡화 > 벨트 > 여성캐주얼벨트\n구찌 공식 및 글로벌 명풍 플랫폼에서는 이 가죽 벨트 제품을 기본적으로 여성 컬렉션으로 구분하여 등록해 둔 경우 많음. 하지만 실제로는 남성도 가능. ", "6972ed5bd82f1e847d984dfe": "[판정] 정답오류\n", "6973f06c1f4e38533cba7c6e": "[판정] 정답오류\n", "69762d3fc727e88c78d76512": "[판정] 모델오류, 정답오류\n실제 제품은 남녀공용 우양산겸용\n후보 목록 문제\n", "698ad688d188d9dbef49beb6": "[판정] 정답오류\n", "6996d65256cfb51638f02f83": "[판정] 정답오류\n", "699de66651b33d381381facd": "패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 여행용가방 > 휴대용/보조가방", "699df19151b33d3813bc5911": "[판정] 정답오류\n후보 목록 문제: 후보군 없음", "699dfdfd51b33d38130523e7": "[판정] 정답오류, 모델오류, 기타\n실제 제품은 중국 풍물/민속 무용용 소형 드럼(축제/행사용 소품)임. 하지만 쇼핑몰 표준 카테고리에 '중국전통악기'라는 독립된 분류가 존재하는지 의문. ", "699e2ff451b33d381331b92c": "정답이 더 적합하나 모델이 선택한 카테고리도 설명적으로 틀리지않음.", "69b2bda897a22e1632b672cc": "[판정] 정답오류\n", "69b4108d3c5ab3d5f0cb65d3": "[판정] 정답오류\n", "69ba58404a7fac2684f95164": "[판정] 정답오류\n", "69c3e77e3c5ab3d5f06b9175": "해당 상품은 모든 라켓 스포츠에 공통으로 호환가능하여 모델과 정답 모두 가능하지만 세베로가 배드민턴 용품을 주로 취급하는 브랜드로 배드민턴 그립이 더 적절한 분류로 판단됨. ", "69ca7cee3c5ab3d5f07e97c1": "[판정] 정답오류\n완구/취미 > 신생아/영아완구 > 목욕놀이완구", "69cabcd63c5ab3d5f0f088d5": "[판정] 정답오류\n", "69cca52e8dd5d4c6d2a5bc44": "[판정] 정답오류, 모델오류\n후보 목록 문제: 후보군 없음, 해당 상품은 해외직구, 기타 쥬얼리(그릴즈), 남녀공용 ", "69ce51643c5ab3d5f0d68854": "[판정] 정답오류, 모델오류\n후보 목록 문제: 후보군 없음, 베이비와 키즈 둘다 가능한 영유아동 상품", "69cf121c3c5ab3d5f0000669": "[판정] 정답오류, 모델오류\n후보 목록 문제: 후보군 없음, 베이비와 키즈 둘다 가능한 영유아동 상품", "69d7a664e12209debb797fb6": "[판정] 정답오류\n패션의류잡화 > 영유아동 신발/잡화/기타의류(0~17세) > 여아잡화 > 머플러/스카프빕 > 여아 넥워머", "69d7ce4af06a0efcfc78d56d": "[판정] 정답오류\n", "69d888f72b6f85282e67f6fa": "3개의 모델이 여아용으로 판단함. 정답은 남녀공용이지만, 공용이라는 성별 정보가 부족하고 브랜드, 색상, 이미지을 여아용으로 인식한 듯 함. ", "69d88c342b6f85282e7f2356": "[판정] 정답오류\n", "69da7ede4adf2b1c1644176c": "[판정] 정답애매\n두 카테고리의 특징을 모두 가지고 있기 때문에 둘다 가능하다고 판단 ", "27552f93f2ed62ed6a61e105215f5f38a714f2e594f742c3af5fefa79ae1bf23": "[판정] 정답오류\n", "694c193b56eb180eec9d3e76": "[판정] 모델오류\n", "6970d41842be7118c0d41cfa": "[판정] 정답오류, 모델오류\n선물 포장용 종이 상자", "69713437864235339c1f9cc5": "[판정] 모델오류\n", "69714b58864235339c25b5b8": "[판정] 모델오류\n", "697258b951b33d3813baa57a": "[판정] 정답오류\n카테고리 설명문 수정 제안: [보냉백/쿨러백]은 '보온/보냉백'의 하위 분류인 보냉백/쿨러백'으로 온도를 차갑게 유지하는 기능에 특화된 상품들이 등록되는 곳임. 따라서 현재 설명문에 포함된 '보온'이라는 표현은 카테고리 정의상 혼선을 줄 수 있으므로 삭제해야함.", "6972ebaed82f1e847d97b821": "[판정] 모델오류\n", "6972ec5fd82f1e847d981e7b": "[판정] 모델오류\n", "6973d4a11f4e38533cb82978": "[판정] 정답오류\n", "69748e571f4e38533cdea7ca": "[판정] 정답애매\n", "69763945c727e88c78d80af4": "[판정] 모델오류\nGemini는 프랭크1976이 패션 주얼리 브랜드 라는 것을 알고 판단한 것 같음. GPT는 브랜드/용도 맥락보다 키워드와 형상을 우선시 한 것 같음. \n모델이 받은 입력에서는 브랜드가 패션 주얼리라는 정보가 없긴함 ", "69783ffaed7981b38fc47be3": "[판정] 정답오류\n", "69793260bc0d9cd7a8b82d7e": "[판정] 모델오류\n해당 제품 제주도에서만 자라는 토종 재래 귤인 당유자차임. \nGemini는 뎅유지가 제주 재래귤(당유자)라는 고유 과일명이라는 점을 텍스트에서 구분함.", "69da7fcc6b607f5705bcfe3f": "[판정] 정답오류\n", "71d132d9ae20f58ad487f11c823fe3ab40937a0a1b7d6dcbed61b69f3aa125a0": "[판정] 정답오류\n", "6989f6bc91f830f91662c0f1": "[판정] 모델오류\n", "698ca71bf84eeb9c12062769": "[판정] 정답애매\n해당 상품은 다목적 캐주얼 의류, 따라서 골프 티셔츠와 등산/아웃도어 티셔츠 전부가능 ", "698d9045bdcbfbf42f91289f": "[판정] 모델오류\n", "6995acc0fa061fbcaef96612": "[판정] 정답애매\n", "699dd6cd51b33d38133614b7": "[판정] 정답오류\n카테고리 설명문 수정 제안: 영유아 칫솔과 유아칫솔 카테고리 설명문의 차이를 모르겠음. 영유아(2-3세미만), 유아(0-8세)등 연령이 나타난 표현을 포함해야한다고 생각함. ", "699dd86551b33d38133acf73": "[판정] 모델오류\n해당 상품은 기본적으로 물에 타서 먹는 제품인데 이를 알 수 있는 정보가 제공되지 않음. ", "69da7d2d4adf2b1c1642a219": "[판정] 정답오류\n", "699dd95751b33d38133e4503": "[판정] 정답애매\n모델과 정답 두 분류 모두 부정할 수 없음 ", "699ddc8751b33d381351ac58": "[판정] 모델오류\n", "699e02d551b33d3813264d61": "[판정] 모델오류\n", "699e0f0051b33d381374ee14": "카테고리 설명문 수정 제안:  '헤어집게'와 '헤어핀(집게핀 포함)'의 경계를 명확히 나누지 못하고 서로 이름을 혼용", "699e156451b33d38139cbb1a": "[판정] 모델오류, 정답애매\n후보 목록 문제: \"뷰티 > 남성화장품 > 남성메이크업 > 베이스메이크업 > 컨실러 > 스틱 컨실러\" 카테고리가 가장 적정해보임. (해당 카테고리가 존재하는 지는  모르겠지만) ", "699e18df51b33d3813aee2c4": "[판정] 정답오류\n", "699e218351b33d3813dfb5a7": "[판정] 모델오류\n", "69a007b3f57b1d4d90324281": "[판정] 정답애매, 정답오류\n", "69b16de8e1544bbae43431a1": "[판정] 정답오류\n", "69b3e11e918eec61f22b34b2": "[판정] 정답오류\n", "69b407ea3c5ab3d5f03ae21f": "[판정] 정답애매\n", "69b40aa53c5ab3d5f06db9cc": "[판정] 정답애매\n", "69b418e93c5ab3d5f057ab5c": "[판정] 모델오류\n", "69b58d403c5ab3d5f0b02d91": "[판정] 모델오류\n", "69b59f013c5ab3d5f0f584b1": "[판정] 모델오류\n", "69b5c2573c5ab3d5f0744f4a": "[판정] 정답오류\n", "0fc3cd81e6dda7ad92674ec8b45d81e404d546e756565d6d50ff61bd7c114482": "다용도 공용 뚜껑", "697258b851b33d3813ba7e86": "정답이 더 적절. 남녀공용 멀티 파우치로 브러쉬 파우치로도 사용가능.", "6973e5c851b33d381314e1e8": "[판정] 모델오류\n", "6974fbacd1c5d831a3767cd9": "[판정] 정답오류\n", "698c4105c455bbfe5d2be921": "[판정] 모델오류\n", "6996e0e156cfb51638f10b69": "[판정] 정답애매, 모델오류\n", "699dda0851b33d38134145e3": "[판정] 모델오류\n", "699de5a051b33d38137eab57": "[판정] 모델오류\n", "699dee3e51b33d3813ab04b1": "[판정] 모델오류\n", "699df7cc51b33d3813e28930": "[판정] 정답애매\n모델과 정답 두 분류 모두 부정할 수 없음 ", "699dfc1551b33d3813fb3c5d": "[판정] 모델오류\n", "699e15b251b33d38139e9204": "모델의 판정을 부정할 수 없지마 정답 분류가 더 적절해보임. ", "69a043fc51b33d38133dcaa6": "[판정] 정답오류\n", "69b543fe3c5ab3d5f0f7e43f": "[판정] 정답애매\n모델과 정답 두 분류 모두 부정할 수 없음 ", "69b59d963c5ab3d5f0ddf92f": "[판정] 모델오류\n", "699de1fc51b33d38136cbfe5": "[판정] 정답오류\n", "69ca8d1a3c5ab3d5f02d63ce": "[판정] 정답애매\n모델과 정답 두 분류 모두 부정할 수 없음 ", "69ce7fb23c5ab3d5f0e56b10": "[판정] 모델오류, 정답오류\n후보 목록 문제: 적합한 후보군이 보이지 않음", "69cf153a3c5ab3d5f019d93e": "[판정] 모델오류, 정답오류\n해당 상품은 키즈와 주니어를 포함하는 영유아동 상품", "69d7c6abca9419b89540cd9a": "모델의 판단을 부정할 수 없지만 정답이 더 적절한 분류", "69bcd1d2ef647757ac11f8e6": "[판정] 모델오류\n", "69da7d2d4adf2b1c1642a1cd": "모델의 판단을 부정할 수 없지만 정답이 더 적절", "69d7f430798cf3968cdc38c1": "[판정] 모델오류\n", "2ac62b5493d8cb590aaba7d6d1fc765ba24a8015854da7e28be33d7725192464": "이상 없음", "3a43001f692cae4e1f6352c60f469efa9cfe6d67ad0b8cf205918f8d231ec474": "레코딩장비 - 오인페(USB) - 마이크몰사운드", "69c63daa3c5ab3d5f085b863": "[판정] 모델오류\n", "6970fdf09b18228952576f78": "[판정] 모델오류, 정답오류\n후보 목록 문제: 후보군 없음, 해당 상품은 이유식 초기 재료를 손질할 때 쓰는 수동 조리도구 세트 ", "6971319c864235339c1eac3e": "이상 없음", "69712d3b864235339c1cf880": "이상 없음", "697133b7864235339c1f7097": "이상 없음", "69713a03864235339c213e43": "이상 없음", "697141f5864235339c2348db": "모델이 전부 정답을 고름", "697147c2864235339c24d267": "모델이 전부 정답을 고름", "697151ef864235339c27653b": "모델이 전부 정답을 고름", "69715d04864235339c29edfb": "모델이 전부 정답을 고름", "69717304864235339c2d20e4": "이상 없음", "699ded2451b33d3813a407ee": "[판정] 정답오류\n", "697258bb51b33d3813bad658": "이상 없음 ", "6973dd9251b33d3813ee7bd3": "이상 없음", "6973df921f4e38533cb8fa2e": "이상 없음", "6973f1bf1f4e38533cbad4b7": "이상 없음 ", "69741d8c1f4e38533cbe617a": "이상 없음 ", "697449f61f4e38533ccd831d": "이상 없음 ", "6974753a1f4e38533cd712e6": "이상 없음", "6974b4891f4e38533ce9f9ce": "이상 없음", "6974d7a91f4e38533cf30e00": "이상 없음", "697537f4c727e88c78c2a4c6": "이상 없음 ", "69762d21c727e88c78d75854": "이상 없음 ", "6976818bc727e88c78dd9c5c": "이상 없음", "6976c7fac727e88c78e261a2": "[판정] 정답오류, 모델오류\n블러셔 > 리퀴드 블러셔", "69771ced51b33d381391bd8b": "이상 없음", "6972ce39d82f1e847d95a36a": "[판정] 정답오류, 모델오류\n해당 상품은 키즈와 주니어 모두 가능하므로 영유아동에 분류하는게 적합해보임 ", "69bae4d3a826be7e40a26c6c": "[판정] 모델오류\n", "6973815af3b0cb544a65388b": "이상 없음", "6979921abc0d9cd7a8bbfcf8": "식품 > 가루/조미료/향신료 > 설탕/소금 > 소금 > 기타소금\n해당 상품은 [천일염]을 가져다가 대나무에 넣고 [구운 소금]인데 나라에서 정한 법적 식품 종류는 [기타소금]", "6979e8a2ed7981b38fdffbb2": "이상 없음", "6988c866af3117312a026444": "이상 없음 ", "698af026c4ae67eadc6b0a48": "이상 없음 ", "698b17fdc455bbfe5dfdf943": "이상 없음", "698b413b75fa4272996e0bd4": "이상 없음", "698c460ec455bbfe5d2d40dd": "[판정] 정답애매\n이상 없음", "698dace417b375fe40b7484e": "이상 없음", "698dbc7652b5b015bf3c1869": "[판정] 모델오류, 정답오류\n", "698ae79075fa4272996c395e": "이상 없음", "6995b6b7fa061fbcaefa69e3": "이상 없음", "6996b47356cfb51638ed5c49": "이상 없음", "699dd5ac51b33d381330473f": "이상 없음", "699dd8b751b33d38133c0b43": "식품 > 스낵/간식 > 간식 소시지도 가능 ", "699dd97e51b33d38133ee980": "이상 없음", "699dda1251b33d381342000b": "이상 없음", "697917c7bc0d9cd7a8b7de01": "이상 없음 ", "699dd84a51b33d38133a70ad": "이상 없음", "699de7c351b33d381387b8ed": "이상 없음", "699de67e51b33d3813825999": "이상 없음", "699def3251b33d3813af84cd": "이상 없음", "699def7d51b33d3813b0f126": "이상 없음", "699defaa51b33d3813b1d1a7": "이상 없음", "699df59651b33d3813d49355": "이상 없음", "699dfb8651b33d3813f8444f": "이상 없음", "699dfc9a51b33d3813fe056f": "이상 없음", "699dfd4751b33d381301a53a": "이상 없음", "699e1aea51b33d3813bf0934": "이상 없음", "699e1e1951b33d3813cf521a": "이상 없음", "699e3c0251b33d3813710835": "[판정] 정답오류\n식품 > 냉장/냉동식품 > 냉장면류 > 냉장 냉면/메밀 > 냉장 냉면", "69b2c3ee97a22e1632b76885": "이상 없음", "69b406c23c5ab3d5f0274f39": "이상 없음", "69b4088e3c5ab3d5f045e256": "이상 없음", "69b40b6a3c5ab3d5f07ca503": "이상 없음", "69b58f7f3c5ab3d5f0ddb857": "이상 없음", "69b5dbb33c5ab3d5f0b284a6": "이상 없음", "69b805e836caaa77c2292b5d": "이상 없음", "69ba6b594a7fac2684fba1c6": "\\", "69bba497697b926388fdd787": "이상 없음", "69c25b3476d2865fde0045c6": "이상 없음", "69ca7bb13c5ab3d5f05fc697": "이상 없음", "69ca88713c5ab3d5f0a88ff3": "이상 없음", "69ca95708dd5d4c6d27c7693": "이상 없음", "69ca9e1c3c5ab3d5f0d4c83d": "이상 없음", "69caa2113c5ab3d5f04831c6": "이상 없음", "69caa3873c5ab3d5f06dc785": "이상 없음", "69cab9243c5ab3d5f084dbc4": "이상 없음", "69ce47cb3c5ab3d5f06ff8d4": "이상 없", "69ce53c33c5ab3d5f0f1e942": "이상 없음", "69ce83953c5ab3d5f0127d94": "이상 없음", "69ce81d93c5ab3d5f0fd8b88": "이상 없음", "69ce86153c5ab3d5f03273c7": "이상 없음", "69d78fc6b228398d8d065a5d": "이상 없음", "69d79ab7aab50f3a24508ea0": "이상 없음", "69d7ac7a36bca89507f4ed6c": "이상 없음", "69d7c66fca9419b895407922": "이상 없음", "69d7f0a7798cf3968cd56eb8": "이상 없음", "69d8867f2b6f85282e5240f8": "이상 없음", "69d899c52b6f85282ee94bdb": "이상 없음", "69da7ac24adf2b1c16407bdd": "이상 없음", "6979608dbc0d9cd7a8b9cd17": "이상 없음", "69897aca64d705dea76431d3": "이상 없음", "699dda6751b33d3813444b14": "이상 없음", "699ddc7951b33d3813516de6": "이상 없음", "699ddeaa51b33d38135b50c6": "이상 없음", "699dee1a51b33d3813aa37e6": "이상 없음", "699df13451b33d3813ba68e6": "이상 없음", "699df25f51b33d3813c0b2d8": "이상 없음", "699df63d51b33d3813d9f8c6": "이상 없음", "699df78c51b33d3813e12400": "이상 없음", "699dffef51b33d381314a938": "이상 없음", "699dfe2951b33d381307404f": "이상 없음", "699e037c51b33d381329cf90": "이상 없음", "699e056851b33d381339a387": "이상 없음", "699e094651b33d3813554952": "이상 없음 ", "699e0b3f51b33d3813605077": "이상 없음", "699e124651b33d38138d5f7c": "이상 없음", "699e14d151b33d38139a135d": "이상 없음", "699e15b651b33d38139eaefa": "이상 없음", "699e179551b33d3813a8795a": "이상 없음", "699e194f51b33d3813b3336c": "이상 없음", "699e23f851b33d3813f01826": "이상 없음", "69b12ecc5ca8f788f84c325d": "이상 없음", "6979d702ed7981b38fde9f45": "[판정] 정답오류\n", "69b541353c5ab3d5f0c4788b": "이상 없음", "699de59c51b33d38137e9cff": "이상 없음", "69b59d503c5ab3d5f0d95d63": "이상 없음", "69b5a33f3c5ab3d5f075fecf": "이상 없음", "69b5b54a3c5ab3d5f0a5dcf4": "이상 없음", "69b5bbf33c5ab3d5f016f7a1": "이상 없음 ", "69b5d8b53c5ab3d5f08bcc62": "이상 없음", "69b5f0a93c5ab3d5f0cf61d5": "이상 없음", "69baa4284a7fac2684ff870b": "이상 없음", "69bafb59a826be7e40a32381": "이상 없음", "69bc0731697b92638800d27d": "이상 없음", "69bc32a6697b926388039cae": "[판정] 정답오류, 모델오류\n패션의류잡화 > 유니섹스/남녀공용 패션 > 공용 잡화 > 모자 > 남녀공용털귀마개", "69c0adb7c647e73b228177d5": "[판정] 정답애매\n상품의 본래 목적은 캠핑용 소품걸이 인데 해먹 스트랩과 구조와 원리가 같음. 다만 하중에서 차이가 있음", "69c16db48d027d0a27205402": "이상 없음 ", "69c19b6189d8ea604929429d": "이상 없음", "69c1d3a489d8ea60492ef401": "[판정] 정답오류, 모델오류\n스포츠/레져 > 등산 > 로프/줄 > 슬링", "69c3e7943c5ab3d5f06c49a9": "이상 없음", "69c3e8883c5ab3d5f079c85b": "이상 없음", "69c61d2746d1e3dd5be3d1c1": "이상 없음", "69c63e503c5ab3d5f096c270": "이상 없음", "69c63e973c5ab3d5f0a01b83": "이상 없음", "69c6657b3c5ab3d5f059e434": "이상 없음", "69c6671d3c5ab3d5f07b18e4": "이상 없음", "69ca7b9e3c5ab3d5f05d161e": "[판정] 정답애매\n", "69ca7f603c5ab3d5f0bea203": "[판정] 정답오류, 모델오류\n패션의류잡화 > 영유아동 신발/잡화/기타의류(0~17세) > 남녀공용신발 > 운동화/스니커즈 > 공용 운동화", "69ca81973c5ab3d5f001c6f2": "이상 없음", "69cb0ab08dd5d4c6d283cc3a": "이상 없음", "69ce42d03c5ab3d5f03d4b4f": "이상 없음", "69ce4d323c5ab3d5f0a70cfe": "이상 없음", "69ce4ee33c5ab3d5f0b964d4": "이상 없음 ", "69ce73103c5ab3d5f05beadb": "이상 없음", "69ce7c573c5ab3d5f0bee68e": "이상 없음", "69ce80533c5ab3d5f0ecf6fa": "이상 없음 ", "69ce88663c5ab3d5f04ad109": "이상 없음", "69cf12d13c5ab3d5f00516a3": "이상 없음", "69cf2d533c5ab3d5f0ec41d9": "[판정] 정답애매\n수중총(스피어건) 및 작살의 추진력을 내는 핵심 소모품(부속품)", "69d75ae03b44fb3b789605b2": "이상 없음", "69d7ac1c2b6f85282ee238ce": "이상 없음 ", "69d7acf22b6f85282eea89dc": "이상 없음 이상 없음", "69d7c9220d0439388820efe2": "이상 없음", "69d7d033a0daa4bb2cd505ac": "이상 없음", "69d875e12b6f85282ed32426": "이상 없음", "69d8775a2b6f85282edfe79a": "[판정] 정답오류, 모델오류\n미니타워 ", "697901eebc0d9cd7a8b69a80": "이상 없음", "699dddda51b33d3813570c59": "이상 없음", "69d889d92b6f85282e6f6c03": "이상 없음", "69d8946e2b6f85282ec3bdcf": "이상 없음", "69d8e26ce164a4c84e9a2ce3": "[판정] 정답오류, 모델오류\n실온(상온)에 보관", "69da7e924adf2b1c1643e52e": "이상 없음 ", "7f054dc5002b244f27542a77a13799de593d02fff6bdee53e914cd31074c37f3": "이상 없음", "90a227234f8ca7cae38c46f604265d59b54a772c431e599cacf3bbbe25431d23": "이상 없음", "dd5251259e7cda7cd8d215d027d00fc6860f8f06e1f4079757edcb85111d2765": "이상 없음", "https://thumbnail.coupangcdn.com/thumbnails/remote/657x657q90trim/image/vendor_inventory/2c8c/8955326ff1931ca1d3c00aaee62a8d76010315cc8b6d71703360734d272d.jpg": "이상 없음", "69b611423c5ab3d5f0ada2d6": "[판정] 정답애매\n서핑보드/카약용 전기 모터 장치라서 정답과 스포츠/레져 > 수영/수상스포츠 > 카누/카약/보트 > 카누/카약 부품 가능\n두 분류 모두 부정할 수 없음 ", "69bb8bc2697b926388fcad12": "[판정] 정답애매\n모델과 정답 두 분류 모두 부정할 수 없음 ", "69c16db48d027d0a272061ac": "[판정] 정답오류\n", "69c1d3a489d8ea60492fabed": "모델과 정답 두 분류 모두 부정할 수 없음 \n바둑ㅎ판과 장기판의 기능을 모두 갖춘 양면판 ", "69c3e6ea3c5ab3d5f0659ef6": "[판정] 정답오류\n", "69c3e8043c5ab3d5f0723c47": "[판정] 정답오류\n", "69c3eac23c5ab3d5f0a01c53": "[판정] 모델오류\n", "69c665ba3c5ab3d5f05e844d": "[판정] 정답오류\n", "69ce4ebe3c5ab3d5f0b7b48e": "[판정] 모델오류\n", "69ce72443c5ab3d5f0533a19": "[판정] 모델오류\n", "69ce82563c5ab3d5f0037263": "[판정] 정답오류\n", "69ce8a1f3c5ab3d5f05c0153": "[판정] 모델오류\n", "69cf12383c5ab3d5f000c336": "[판정] 모델오류\n", "69d7952c9d29895aa5e26f90": "[판정] 정답애매\n모델과 정답 두 분류 모두 부정할 수 없음", "69d7abdd2b6f85282ee0204f": "[판정] 정답오류\n", "69d7cd470d04393888246bc9": "[판정] 모델오류\n", "69d7d99ea0daa4bb2cd8a089": "[판정] 모델오류\n", "69d8752b2b6f85282ecddd5d": "모델과 정답 두 분류 모두 부정할 수 없음 \nD-SUB와 RGB가 기술적으로 완전히 같은 단자를 뜻하는 말", "69d8794b2b6f85282ef207d1": "[판정] 모델오류\n", "69d886e92b6f85282e5529eb": "[판정] 모델오류\n", "69d889782b6f85282e6cb59f": "모델과 정답 두 분류 모두 부정할 수 없음 ", "69d88b362b6f85282e77c41e": "[판정] 모델오류\n", "69d89b872b6f85282efa9931": "[판정] 정답오류\n", "69da7ac24adf2b1c16407bb5": "[판정] 모델오류\n", "69da7c264adf2b1c1641de5a": "[판정] 정답오류\n", "69da8dadd51d6d8a4122ecea": "[판정] 모델오류\n", "f623ab18e17b1b9575e6805d9daf67b16e8fd1edd06e06c2ac3fa9a828ebf23c": "[판정] 모델오류\n", "699ddd4b51b33d381354c4f4": "이상 없음", "03894d9124774ca03382f367cdbe0cb962ce1436436befb0f836696cb8ff7755": "[판정] 정답오류\n모델이 맞았습니다", "0bb515a578059db99a2b96dc490e0894e1087818f45b29b48d71dea751b55b63": "[GTC] __none__\n후보에 없음 판단 이유 : 해당 상품은 사이즈표를 기준으로 만 3세부터 만 14까지 가능 (영유아동), 아웃도어/등산용 기능성 의류가 아님.\n", "12daa7187d0e222afa2a76d43e82854c444b1605775dfea80940992f24de5906": "[판정] 정답오류\n[GTC] 103031\n", "2a701e91a2996d98e7bf4def601628364f4c55c9a44d1288b593c438c298fd59": "[판정] 정답오류\n[GTC] 77644\n", "41124da7d51c549332b4ca16d1c4b6603c9f02867b16a8c56fa92806785824da": "[판정] 정답오류\n[GTC] 104478\n", "6555b9686f15b0b7791af7a28617f88f557bd4cb1e6ca95a3475f6465759df74": "[GTC] 81786|81886\n", "69714c71864235339c25fa60": "[GTC] 56601\n", "69712ba4864235339c1c2422": "[GTC] __none__\n패션의류잡화 > 영유아동 신발/잡화/기타의류(0~17세) > 남녀공용잡화 > 가방 > 보조가방/신발주머니\n위와 같은 후보 카테고리가 존재했다면 더 적합했을 것 같음. ", "69da86402063ac641137be04": "[판정] 정답오류\n[GTC] 69684\n", "699df88151b33d3813e60325": "[GTC] 42621\n이상 없음", "698b1abbc455bbfe5dff6422": "[판정] 정답오류\n[GTC] __none__\n", "6973d4df1f4e38533cb84e29": "[GTC] 80987\n", "69a0451051b33d381343af19": "[GTC] __none__\n", "6973d5381f4e38533cb85d01": "[판정] 정답오류\n", "6973f0b01f4e38533cba8fd1": "[판정] 정답오류, 모델오류\n[GTC] 85788\n상품명에는 주니어라는 텍스트가 존재하지만 실제로는 키즈에 가까움", "699df90551b33d3813e896eb": "이상 없음", "699df0e351b33d3813b84a2d": "[판정] 정답오류\n[GTC] 69885\n", "69d8786a2b6f85282ee8fc72": "이상 없음", "697316fbf3b0cb544a4aa864": "[GTC] __none__\n이상 없음", "6976b03fc727e88c78e037a2": "[판정] 기타\n반집업 목폴라", "69708e6242be7118c0cf798d": "[GTC] __none__\n키친아트 라팔 멀티 슬라이서 화이트 1개", "69b16de8e1544bbae4342dd2": "[GTC] 70369\n이상 없음", "69d7ab5a2b6f85282edb7c08": "이상 없음", "69716a2f864235339c2be642": "[GTC] 105905\n", "6972de34d82f1e847d967608": "[판정] 정답오류, 모델오류\n", "698b9ac2c455bbfe5d12738c": "[GTC] 70329\n", "699dd55f51b33d38132f088d": "[판정] 정답애매\n", "69b40a843c5ab3d5f06b33d0": "[GTC] 70366\n이상 없음", "69787f7eed7981b38fc88099": "[판정] 정답오류\n", "698922e0ada819e27185e84b": "[GTC] 85553\n이상 없음", "6972ce24d82f1e847d959696": "[GTC] 85621\n", "69762c93c727e88c78d736f0": "[판정] 기타\n상품자체가 남녀공용이 아니고 38mm(남성용), 27mm(여성용)으로 각각 나누어 출시된 라인", "6979a89ced7981b38fdb372d": "[판정] 정답오류, 모델오류\n[GTC] 71148\n", "69b59aeb3c5ab3d5f0b4179b": "[GTC] 70690|64043\n", "69ce046ce7ac9cc34c9ed9e3": "[판정] 모델오류\n[GTC] 69792\n", "697143b5864235339c23c0e9": "[GTC] __none__\n", "6972ceb9d82f1e847d95c256": "[GTC] 69217\n", "69732ec1f3b0cb544a503e33": "[판정] 정답오류\n", "69713332864235339c1f427d": "[GTC] 70658\n해당 상품의 사이즈 표를 바탕으로 착용 연령층은 만 3세 - 15세 전후 가능하므로 영유아동에 해당함\n래쉬가드 기능이 들어간 슬리브리스에 해당함", "6972ced4d82f1e847d95c419": "[GTC] __none__\n이상 없음 ", "699de02451b33d3813623d85": "[GTC] 70306\n이상 없음", "699dd6ce51b33d3813361d49": "[GTC] 70430\n이상 없음", "6971415d864235339c232736": "[GTC] 71158\n", "699e2cc551b33d38131ac374": "[GTC] 70604\n모델의 판단을 부정할 수 없지만 정답이 더 적절함", "69713b2b864235339c21a21b": "[GTC] __none__\n", "69d795839d29895aa5e39067": "이상 없음", "6972bca0d82f1e847d937e14": "[판정] 정답오류, 모델오류\n[GTC] 71588|71586\n", "699dd65e51b33d3813342dd0": "이상 없음", "6973f0dc1f4e38533cba9977": "[GTC] 69368\n", "67415fa5a3b928e736caf07711352170af4ae79dd16610780620fcb59a157f74": "[판정] 정답오류, 모델오류\n모델이 전부 정답을 고름", "6970f2eefee267746e82fab6": "[판정] 정답오류, 모델오류\n[GTC] 69524\n", "69793a67ed7981b38fd40a0d": "[판정] 정답오류\n[GTC] 69896\n겉모습을 워커의 실루엣을 흉내 낸 패션 스니커즈로 판단됨", "334dfbed29bcb1c086d53af6b2431842384afb57ad6533370fe0ca190a585a94": "[판정] 정답오류, 모델오류\n[URL] https://www.glamira.com.ph/glamira-men-pendant-innard.html?alloy=yellow-375&stone1=black-sapphire&stone2=blackdiamond\n[GTC] 69251\n", "69ca81613c5ab3d5f0f9f96c": "[판정] 모델오류\n[GTC] 69795\n", "699e2c7251b33d381318af62": "[GTC] 111669|70228\n가전/디지털 > 생활가전 > 비데/온수기 > 비데 > 기계식 > 가정용 비데도 가능. 하지만 정답과 모델이 더 적절. ", "6973df231f4e38533cb8df07": "[판정] 모델오류\n[GTC] 79422\n", "69ca7ba73c5ab3d5f05e7a59": "[판정] 모델오류\n", "697647d9c727e88c78d90407": "[판정] 정답오류\n", "699dd95b51b33d38133e5952": "이상 없음", "697146b9864235339c2489d1": "키즈 or 영유아동, 남녀공용, 쓰리피스 수영복", "699e364751b33d3813574b68": "[GTC] 81397|81220\n이상 없음", "69b40fa13c5ab3d5f0bbcd93": "이상 없음", "6973f06c1f4e38533cba7c6d": "[판정] 모델오류\n[GTC] __none__\n베이비, 남녀공용, 패딩/다운패딩 조끼 ", "6972ec5fd82f1e847d981e8d": "[GTC] 71581\n제조사의 공식물 이름에 '남자'라는 단어가 명시되어 있지만 백화점 지점이나 쿠팡 같은 유통채널에서는 남녀공용으로 표기해 판매하고 있음 ", "69712e6c864235339c1d7f93": "[GTC] 85867\n", "6972cf1fd82f1e847d95cda1": "[판정] 정답오류, 모델오류\n베이비(0세부터 36개월 전후), 남녀공용, 카라넥니트 ", "69caa2563c5ab3d5f04f4803": "[판정] 모델오류\n[GTC] 69593\n", "69770140c727e88c78e7dcb4": "[판정] 정답오류\n", "6989f6bc91f830f91662b156": "[GTC] 69845\n이상 없음", "699decc551b33d3813a0f619": "이상 없음", "69cab7ca3c5ab3d5f05e108f": "[판정] 정답오류\n", "697413551f4e38533cbd3313": "[판정] 정답오류\n", "6974acf71f4e38533ce83931": "[판정] 정답오류\n", "6974b6631f4e38533ceb00ec": "[판정] 정답오류\n", "69b595f73c5ab3d5f05a6a48": "[판정] 모델오류\n", "69bba0de697b926388fdca0a": "[판정] 정답오류\n멀티리더로 USB 허브 기능과 휴대폰 OTG 기능이 가능함 ", "69bbd3ac697b926388ff284f": "[판정] 정답오류\n", "69d7acc32b6f85282ee89ad2": "[판정] 정답오류\n", "69d7ad032b6f85282eeb39fb": "[판정] 정답오류\n", "69d7bb242b6f85282e5ce7bd": "[판정] 정답오류\n", "69d7fd6268380fc14eb8bcdd": "[판정] 정답오류\n", "699dff6f51b33d381310c15b": "패키지에 가방이 포함되어 있어 휴대용으로도 가능", "699e3d9451b33d38137b01d4": "[판정] 정답오류\n", "6989fc3391f830f916632104": "[판정] 모델오류\n", "9039ce7bb9d79caef10b4a9ff6e1e86e3b4519597d22436686c77073d3bff234": "[판정] 정답애매\n카테고리 설명문을 기반으로 하면 본체 케이스 이므로 해당 상품은 분류될 수 없음 ", "697396a651b33d3813a9661f": "[판정] 모델오류\n", "69d7a3bd6d22a5ef2f9707bf": "[판정] 모델오류\n", "69d78a0da3e7a7ff3ae05dff": "PC나 노트북에 연결해서 쓰는 외장형 터치패드가 아닌 산업용 기계, 공장 자동화 장비(PLC/HMI), 의료기기 화면에 들어가는 산업용 터치스크린 패널(디스플레이 수리용 유리 부품)", "69d875cd2b6f85282ed2bfc1": "마루광택기 맨 밑바닥에 조립해서 쓰는 핵심 소모품(부품)", "69d879c62b6f85282ef61d98": "[판정] 정답애매\n", "697177ce864235339c2dc44d": "[판정] 기타\n상품 텍스트와 이미지가 일치하지 않음 \n어떤 상품인지를 모르겠음"}, "runs": [{"run_id": "llm-relabel-gemini3flash-top10", "provider": "google", "model": "gemini-3-flash-preview", "prompt": "relabel/top10-select", "think": "low"}], "samples": [{"id": "699de71d51b33d381384d95c", "name": "바르숲 유절 (가드3) 가드 패밀리침대 편백나무 통원목 안전가드 침대 프레임, 베이지", "group": "4.1.1 가구", "gt": "77839", "candidates": [{"leaf": "78006", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동침대", "desc": "가구/홈데코의 유아동가구에서 어린이 방 수면용으로 쓰는 1인용 일반형 아동침대입니다. 매트리스와 함께 사용하거나 매트리스를 올려 쓰는 침대 본체로, 바닥면 가까운 높이의 단일 수면 구조를 갖습니다."}, {"leaf": "77838", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 일반침대", "desc": "가구/홈데코 > 가구 > 침대 > 일반침대는 매트리스를 올려 사용하는 기본 침대 프레임과 침대 세트를 뜻합니다. 침대 본체와 프레임 중심의 표준 구조로 구성된 상품이 이 카테고리에 해당합니다."}, {"leaf": "77213", "rank": 3, "breadcrumb": "출산/유아동 > 유아가구/인테리어 > 유아동침대 > 유아범퍼침대", "desc": "출산/유아동 유아가구/인테리어의 유아동침대 중 사방을 두꺼운 범퍼가 감싸는 낮은 침대입니다. 아이가 누워 자는 공간을 푹신한 둘레 구조로 형성해 잠자리에서의 안정감을 높인 유아용 침대입니다."}, {"leaf": "113066", "rank": 4, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 수납침대", "desc": "침대 프레임에 서랍, 리프트업 상판, 하부 수납공간을 갖춘 수납침대입니다. 가구/홈데코 > 가구 > 침대 범주에서 침실 공간에 물건 보관 기능을 더한 침대 유형입니다."}, {"leaf": "77839", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 저상형침대", "desc": "침대/홈데코 카테고리의 저상형침대는 프레임 높이가 낮아 바닥에 가깝게 배치되는 침대 본체를 뜻합니다. 매트리스를 올려 사용하는 구조로, 낮은 상부 높이와 안정적인 낮은 실루엣이 핵심 특징입니다."}, {"leaf": "77184", "rank": 6, "breadcrumb": "출산/유아동 > 놀이매트/안전용품 > 침대가드/연결장치 > 침대가드연결장치", "desc": "침대가드연결장치는 출산/유아동 놀이매트/안전용품 범주의 침대가드 구성품을 이어 주는 연결 전용 부품입니다. 침대가드 여러 개의 길이 확장, 모서리 연결, 침대와 침대가드의 고정에 쓰이는 장치로 분류됩니다."}, {"leaf": "77183", "rank": 7, "breadcrumb": "출산/유아동 > 놀이매트/안전용품 > 침대가드/연결장치 > 침대가드", "desc": "출산/유아동 놀이매트·안전용품의 침대가드로, 침대 가장자리에 프레임을 고정해 아이가 자는 동안 굴러 떨어지는 위험을 줄이는 보호용 울타리입니다. 침대 옆면을 따라 설치해 수면 공간의 가장자리를 높여 주는 구조가 핵심입니다."}, {"leaf": "77862", "rank": 8, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 침대부속자재", "desc": "가구/홈데코 > 가구 > 침대 > 침대부속자재는 침대의 구조와 조립을 구성하는 보조 자재를 담는 카테고리로, 프레임 지지 부품, 결합용 자재, 받침대, 보강판처럼 침대를 완성하고 보강하는 요소가 해당됩니다."}, {"leaf": "77861", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 침대부속가구 > 침대깔판", "desc": "침대깔판은 침대 프레임 위에서 매트리스를 넓게 받치는 바닥판이나 격자형 받침 구조물입니다. 침대 부속가구 가운데 매트리스 지지, 하중 분산, 통풍을 위한 받침 부품으로 사용됩니다."}, {"leaf": "78010", "rank": 10, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동침대소품", "desc": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동침대소품은 어린이침대에 덧붙여 설치하는 가드, 계단, 연결부품, 보호패드처럼 침대 사용을 보완하는 부속품과 주변 구성품을 묶는 카테고리입니다. 침대 본체와 함께 쓰이며 안전성과 편의성을 높이는 소품이 중심입니다."}], "cells": [["77839", true, "이 상품은 바닥에 가깝게 설계된 낮은 높이의 프레임과 사방 가드를 갖춘 '저상형 침대'입니다. 상품명에 명시된 '패밀리침대'는 주로 낙상 방지를 위해 높이를 낮춘 저상형 구조가 특징이므로 후보 E가 가장 적합합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/95a246590aa5f512efcb203bb41a844d61c3d1b42154983cbb78d436699f3e26.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/95a246590aa5f512efcb203bb41a844d61c3d1b42154983cbb78d436699f3e26.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "78006", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "699ded7851b33d3813a7081c", "name": "호두 원목 대형 테이블 송풍 미학 식탁 가정용 앤티크 책상 거실용, 04 Walnut 200   80   75", "group": "4.1.1 가구", "gt": "77947", "candidates": [{"leaf": "77909", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 거실테이블 > 입식테이블/세트", "desc": "가구/홈데코 > 가구 > 거실테이블 > 입식테이블/세트는 의자와 함께 사용하는 높은 높이의 거실용 테이블로, 식사·작업·담소에 맞춘 중심 사용형 제품을 포함합니다. 같은 높이와 용도로 구성된 테이블·의자·벤치 세트도 함께 속합니다."}, {"leaf": "77949", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 주방가구 > 식탁/테이블 > 식탁/입식테이블", "desc": "가구/홈데코의 주방가구 중 식사와 작업에 쓰는 일반 높이의 식탁과 서서 사용하기 좋은 입식테이블을 뜻합니다. 상판과 다리로 이루어진 고정형 테이블이 중심이며, 의자와 함께 쓰는 식탁과 높이가 있는 스탠딩 테이블이 여기에 속합니다."}, {"leaf": "78000", "rank": 3, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 오피스/사무가구 > 회의테이블", "desc": "회의테이블은 가구/홈데코의 학생/사무용가구, 오피스/사무가구에 속하는 여러 사람이 둘러앉아 회의, 협의, 발표, 팀 작업을 하는 큰 상판의 테이블입니다. 사무실 회의실이나 공용 미팅 공간에 두고 함께 앉아 사용하는 모임용 테이블로 표현됩니다."}, {"leaf": "77950", "rank": 4, "breadcrumb": "가구/홈데코 > 가구 > 주방가구 > 식탁/테이블 > 접이식식탁", "desc": "주방가구의 식탁/테이블 중 상판이나 다리가 접혀 펼침과 보관이 쉬운 접이식 구조의 식탁입니다. 필요할 때 넓게 사용하고 접은 상태로 이동과 수납이 편한 제품이 이 분류에 속합니다."}, {"leaf": "77997", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 오피스/사무가구 > 사무용책상", "desc": "사무용책상은 가구·홈데코의 학생/사무용가구 중 오피스/사무가구에 속하는 기본 업무용 책상으로, 넓은 상판과 다리 구조를 갖춘 컴퓨터 작업·문서 작성용 책상입니다. 사무실과 업무 공간에 배치해 개인 작업과 서류 정리에 쓰는 형태가 중심입니다."}, {"leaf": "77968", "rank": 6, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 책상 > 일반책상", "desc": "학생·사무용가구의 책상 중에서 평면 상판과 다리로 이루어진 범용 작업용 책상으로, 공부·문서 작업·일반 사무를 위한 기본 구조를 갖춘 제품입니다."}, {"leaf": "77962", "rank": 7, "breadcrumb": "가구/홈데코 > 가구 > 주방가구 > 교자상/다용도상 > 다용도상", "desc": "주방가구의 교자상/다용도상 중 다용도상은 식사, 작업, 독서, 취미 활동에 두루 쓰는 낮은 탁자입니다. 바닥에 앉아 사용하는 높이와 넓은 상판을 갖춰 여러 생활 장면에 자연스럽게 맞습니다."}, {"leaf": "77906", "rank": 8, "breadcrumb": "가구/홈데코 > 가구 > 거실테이블 > 좌탁/티테이블", "desc": "거실 테이블의 한 종류로, 바닥에 낮게 놓고 앉은 자세로 쓰는 낮은 좌식 테이블입니다. 차를 마시거나 책, 소품을 올려두는 용도의 상판이 하나인 생활용 탁자를 포함합니다."}, {"leaf": "77947", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 주방가구 > 식탁세트", "desc": "주방가구의 식탁세트는 식사용 식탁과 그에 맞는 의자가 한 조합으로 구성된 세트 상품입니다. 2인용, 4인용처럼 인원수에 맞춘 구성으로 분류됩니다."}, {"leaf": "77907", "rank": 10, "breadcrumb": "가구/홈데코 > 가구 > 거실테이블 > 리프트테이블", "desc": "상판 높이를 올리고 내릴 수 있는 구조가 핵심인 거실테이블입니다. 낮은 좌탁 높이에서 시작해 작업이나 식사에 맞는 높이로 조절해 쓰는 가구입니다."}], "cells": [["77947", true, "해당 상품은 호두 원목 소재의 긴 테이블과 그에 어울리는 의자, 벤치가 함께 구성된 제품으로, 주방이나 다이닝 공간에서 식사용으로 사용하는 식탁세트의 특성에 가장 잘 부합합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/ab7b5b419c5a027e7c4590708f8c453d9f85973860a0d4ab5e1d52cb4873b96f.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/ab7b5b419c5a027e7c4590708f8c453d9f85973860a0d4ab5e1d52cb4873b96f.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "77909", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "69d6ae2d4a8677ac71ba336f", "name": "그네 의자 차양 정원 안뜰 야외 의자해먹 캐노피방수 여름 지붕 그네", "group": "4.1.1 가구", "gt": "78029", "candidates": [{"leaf": "77915", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 의자 > 흔들의자", "desc": "가구/홈데코의 의자 중 앞뒤나 곡선 방향으로 부드럽게 흔들리는 구조를 갖춘 1인용 흔들의자입니다. 앉으면 몸의 움직임에 맞춰 흔들림이 이어져 휴식용 좌석으로 쓰입니다."}, {"leaf": "81807", "rank": 2, "breadcrumb": "스포츠/레져 > 캠핑 > 타프/그늘막 > 차광막/루프", "desc": "스포츠·레져 캠핑용 타프/그늘막 가운데 텐트나 타프의 상부에 얹어 지붕처럼 설치하는 차광막·루프 카테고리로, 직사광선과 비, 이슬을 막는 상단 차폐 부속품이 중심입니다. 루프 덮개, 상단 보강막, 방수 커버처럼 기존 구조물 위에 결합해 상부를 보호하는 제품을 담습니다."}, {"leaf": "77357", "rank": 3, "breadcrumb": "완구/취미 > 실내대형완구 > 그네/그네봉 > 그네", "desc": "실내대형완구의 그네는 천장이나 프레임에 매달아 사용하는 좌석형 놀이기구로, 앉거나 몸을 올린 채 흔들리며 노는 구조입니다. 좌석과 매달림 연결부를 갖춘 본체가 중심이며, 그네봉 위에 설치해 사용하는 놀이용 상품입니다."}, {"leaf": "81811", "rank": 4, "breadcrumb": "스포츠/레져 > 캠핑 > 타프/그늘막 > 천막/캐노피", "desc": "캠핑과 야외공간에서 폴대와 프레임으로 지지해 지붕처럼 펼치는 독립형 천막과 캐노피를 분류한다. 비와 햇빛을 가리는 상부 덮개 구조가 중심인 캠핑용 차양·쉼터 제품군이다."}, {"leaf": "78029", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 야외가구 > 야외그네", "desc": "야외가구 중 좌석과 지지 프레임이 함께 구성되어 실외에서 앉거나 기대어 흔들며 사용하는 스윙형 그네 가구입니다. 정원, 테라스, 마당에 두는 1~3인용 프레임형 그네와 매달아 쓰는 그네 좌석이 포함됩니다."}, {"leaf": "81877", "rank": 6, "breadcrumb": "스포츠/레져 > 캠핑 > 침낭/매트/해먹 > 해먹/침대 설치소품", "desc": "스포츠/레져 캠핑에서 해먹과 야전침대를 현장에서 걸고, 연결하고, 지지하는 설치 부속품 카테고리입니다. 로프, 스트랩, 고리, 카라비너, 버클, 스탠드 부품처럼 본체를 고정하고 하중을 분산하는 소품이 포함됩니다."}, {"leaf": "78027", "rank": 7, "breadcrumb": "가구/홈데코 > 가구 > 야외가구 > 야외의자", "desc": "가구/홈데코의 야외가구 중 정원, 테라스, 발코니에서 1명이 앉아 쓰는 단일 좌석 의자입니다. 등받이·팔걸이·접이식·적층형 구조를 갖춘 실외용 의자 상품이 이 카테고리에 속합니다."}, {"leaf": "81874", "rank": 8, "breadcrumb": "스포츠/레져 > 캠핑 > 침낭/매트/해먹 > 해먹", "desc": "캠핑용 해먹은 천이나 그물 형태의 몸체를 양쪽 지지점에 걸어 공중에 매달아 몸을 눕히고 쉬는 휴식용 침상입니다. 스포츠/레져 캠핑 침낭/매트/해먹 분류에서 설치소품과 함께 사용하는 본체로, 야외 휴식 공간을 빠르게 마련하는 해먹 제품을 뜻합니다."}, {"leaf": "78032", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 야외가구 > 정자", "desc": "가구/홈데코의 야외가구 중 정자는 야외에 세우는 지붕형 독립 구조물로, 그늘과 휴식을 위한 작은 공간을 형성하는 정원용 가구입니다. 사람이 앉아 쉬는 요소와 함께 외부 공간의 중심 구조로 쓰이며, 정원과 마당에 배치해 휴식 구역을 만듭니다."}, {"leaf": "81869", "rank": 10, "breadcrumb": "스포츠/레져 > 캠핑 > 의자/테이블 > 그네의자/해먹의자", "desc": "그네의자/해먹의자는 프레임이나 로프에 매달아 공중에 띄워 사용하는 흔들림 구조의 캠핑용 좌석입니다. 앉아서 휴식하는 의자형 좌석으로, 캠핑 의자와 캠핑 테이블이 함께 쓰이는 의자/테이블 품목 가운데 매다는 설치형 좌석에 속합니다."}], "cells": [["78029", true, "해당 상품은 정원이나 마당과 같은 실외 공간에 설치하여 사용하는 지지 프레임과 좌석, 차양막이 결합된 형태의 그네 가구이므로 '야외그네' 카테고리가 가장 적절합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/b37b7398199b16cd05655b07e6af3929d230f2bac8196ac216c8d2c9dfbc875b.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/b37b7398199b16cd05655b07e6af3929d230f2bac8196ac216c8d2c9dfbc875b.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "77915", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "69d7baa29b10427ec17d2bc7", "name": "사무용 책장 오피스 서류 수납장 캐비닛 이동식 잠금 오크 키 보관 1 기본이동식장 웜베 80 40", "group": "4.1.1 가구", "gt": "77998", "candidates": [{"leaf": "77927", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 수납가구 > 서랍/수납장 > 서랍장", "desc": "서랍장은 가구/홈데코의 수납가구 중 전면 서랍을 여러 칸 갖춰 옷, 양말, 소품처럼 작은 물건을 구분해 보관하는 서랍형 수납가구입니다. 상판과 본체 안쪽 수납 공간에 서랍이 중심을 이루어 가정용 물품을 정돈해 넣는 구조입니다."}, {"leaf": "77999", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 오피스/사무가구 > 사무실책장", "desc": "사무실책장은 학생/사무용가구의 오피스/사무가구에서 서류, 파일, 책, 자료를 선반과 칸에 나누어 보관하도록 만든 독립형 수납 가구입니다. 사무 공간의 문서와 물품을 한눈에 정리해 꽂아 두는 구조가 핵심입니다."}, {"leaf": "77887", "rank": 3, "breadcrumb": "가구/홈데코 > 가구 > 옷장/드레스룸 > 장롱/붙박이장 > 락커/캐비닛/사물함", "desc": "가구/홈데코 > 가구 > 옷장/드레스룸 > 장롱/붙박이장 > 락커/캐비닛/사물함은 개인별로 나뉜 칸과 문이 있는 수납 가구로, 옷과 소지품을 구획별로 정리해 보관하는 제품입니다. 잠금장치와 구분된 보관 공간을 갖춘 사물함형 구조가 특징입니다."}, {"leaf": "77998", "rank": 4, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 오피스/사무가구 > 사무용수납장", "desc": "사무용수납장은 사무실의 서류, 파일, 문구류, 비품을 정리해 보관하는 수납 중심 가구입니다. 서랍장, 캐비닛, 철제 수납장처럼 내부 칸과 선반으로 분류 보관하는 형태가 주를 이룹니다."}, {"leaf": "77996", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 오피스/사무가구 > 사무용책상세트", "desc": "사무용책상세트는 사무용 책상을 중심으로 수납장, 책장, 파티션 등이 함께 구성된 오피스/사무가구 세트입니다. 책상과 주변 사무가구를 한 번에 갖출 수 있도록 구성된 묶음 상품입니다."}, {"leaf": "77974", "rank": 6, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 책장/책꽂이 > 책장", "desc": "학생/사무용가구의 책장/책꽂이 중 책장은 바닥에 두는 독립형 수납가구로, 여러 칸과 선반에 책과 서류, 파일을 세워 보관하는 형태입니다. 방이나 사무실에서 책과 문서를 체계적으로 정리하는 큰 보관용 가구입니다."}, {"leaf": "77936", "rank": 7, "breadcrumb": "가구/홈데코 > 가구 > 수납가구 > 서랍/수납장 > 공간박스", "desc": "가구/홈데코의 수납가구에서 실내 빈 공간과 벽면에 맞춰 배치하는 박스형 수납 가구로, 물건을 담아 정리하고 공간을 나누는 수납 단위가 핵심입니다. 단순한 박스 형태와 개방형 구조가 중심인 공간 활용용 수납품을 포함합니다."}, {"leaf": "77978", "rank": 8, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 책상서랍/수납 > 문서보관함", "desc": "학생/사무용가구의 책상서랍/수납에 속하는 문서보관함은 서류, 문서, 파일철을 종류별로 정리해 세워 넣거나 칸별로 분류해 보관하는 수납 가구입니다. A4 문서와 파일을 체계적으로 정돈하는 문서 중심 수납이 핵심입니다."}, {"leaf": "77928", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 수납가구 > 서랍/수납장 > 수납장", "desc": "가구/홈데코의 수납가구 중 문이 달린 상자형 수납장으로, 옷·잡화·생활용품을 내부 선반과 공간에 정리해 보관하는 가구입니다. 바닥에 두는 독립형 구조로 거실, 침실, 현관 등 다양한 공간의 보관용 가구로 쓰입니다."}, {"leaf": "77977", "rank": 10, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 책상서랍/수납 > 책상서랍", "desc": "책상서랍은 학생/사무용가구의 책상 아래나 옆에 붙여 쓰는 슬라이드식 서랍형 수납장으로, 책상 옆에서 문서와 필기구, 작은 사무용품을 바로 꺼내 쓰기 좋게 구성된 상품입니다. 작업 공간 주변의 보조 수납과 빠른 접근성을 중심으로 한 책상 연계 수납가구입니다."}], "cells": [["77998", true, "상품명이 '사무용 서류 수납장'임을 명시하고 있으며, 이미지에서도 사무실용 바인더와 서류 등을 보관하는 용도로 사용되고 있어 '사무용수납장'이 가장 적절한 카테고리입니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/7114ccf715b2c90645b3ade799199a42021541a2177f5848ce10ed555ccdf595.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/7114ccf715b2c90645b3ade799199a42021541a2177f5848ce10ed555ccdf595.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "77927", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "69d7c5743675777b608d9cde", "name": "이층침대 계단 다락방 복층 서랍장 가구 캐비닛 4단 cm", "group": "4.1.1 가구", "gt": "78020", "candidates": [{"leaf": "78008", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동이층침대", "desc": "가구/홈데코의 유아동가구·어린이침대에 속하는 아동이층침대는 위아래로 2단 이상 쌓인 침대면과 윗침대로 오르는 사다리 또는 계단을 갖춘 아동용 침대입니다. 두 개의 수면 공간을 상하로 배치한 구조가 핵심입니다."}, {"leaf": "77858", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 침대부속가구 > 침대서랍", "desc": "침대 아래나 프레임 하부에 결합해 수납공간을 늘리는 침대부속가구로, 침대와 함께 쓰는 이동식 또는 고정식 서랍형 수납 구성입니다. 침대 하부에 맞춰 설치되는 서랍 구조가 핵심인 침대부속가구입니다."}, {"leaf": "77841", "rank": 3, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 이층/이단침대 > 이층침대", "desc": "가구/홈데코 > 가구 > 침대 > 이층/이단침대의 이층침대는 하나의 침대 구조 안에 위아래로 두 개의 독립된 침상이 겹쳐 배치된 형태입니다. 상층과 하층이 모두 침대로 구성되고 사다리나 계단으로 상층에 오르는 구조가 일반적입니다."}, {"leaf": "77842", "rank": 4, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 이층/이단침대 > 이단침대", "desc": "가구/홈데코의 침대 카테고리에서 이단침대는 위아래 2단으로 쌓인 동일한 침대 면이 두 사람 이상이 각각 사용할 수 있도록 구성된 침대입니다. 상하 동일한 2단 구조와 복층 형태가 중심인 침대 상품을 뜻합니다."}, {"leaf": "77931", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 수납가구 > 서랍/수납장 > 계단형수납장", "desc": "가구/홈데코의 수납가구 중 서랍/수납장에 속하는 계단형수납장은 위로 갈수록 높이가 단계적으로 달라지는 계단형 구조를 가진 수납가구입니다. 각 단을 선반이나 수납칸처럼 활용해 물건을 층별로 배치하는 형태입니다."}, {"leaf": "78020", "rank": 6, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 유아동수납장 > 서랍장/수납장/계단형서랍", "desc": "유아동가구의 수납장 범주에서 옷, 장난감, 학용품, 소품을 정리하는 여러 칸의 서랍형·수납형 가구와 계단형 서랍을 분류합니다. 서랍과 문형 수납공간이 중심인 제품이며, 아동침대에 연결된 계단형 수납도 수납 기능을 갖춘 형태로 포함됩니다."}, {"leaf": "78007", "rank": 7, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동벙커침대", "desc": "가구/홈데코의 유아동가구에 속하는 아동벙커침대는 상부 수면 공간과 하부 개방 공간을 함께 갖춘 낮은 어린이침대입니다. 아래 공간을 수납, 놀이, 책상 배치에 활용하는 구조가 특징입니다."}, {"leaf": "113069", "rank": 8, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 침대부속가구 > 침대사다리/계단", "desc": "가구/홈데코 > 가구 > 침대 > 침대부속가구 > 침대사다리/계단은 이층침대·벙커침대·다락형 침대에 붙여 오르내림을 돕는 부속가구입니다. 손잡이가 있는 사다리형과 발판이 이어진 계단형 구조로, 침대 옆에 고정해 안전한 승하차를 돕는 용도입니다."}, {"leaf": "78009", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동이단침대", "desc": "가구/홈데코 > 가구 > 유아동가구 > 어린이침대 > 아동이단침대는 아래와 위 두 층에 각각 침대 면이 갖춰진 어린이용 침대입니다. 두 사람의 수면 공간을 위아래로 나란히 구성한 2층 침대형 가구로, 유아동가구의 어린이침대 범주에서 분류됩니다."}, {"leaf": "77843", "rank": 10, "breadcrumb": "가구/홈데코 > 가구 > 침대 > 이층/이단침대 > 벙커침대", "desc": "가구/홈데코의 침대와 이층/이단침대 범주에서, 위쪽에 침면을 두고 아래 공간을 놀이공간, 책상, 수납, 소파 등으로 활용하는 상부 침대형 가구입니다. 한 개의 침면과 넓은 하부 활용 공간을 갖춘 구조가 벙커침대의 핵심입니다."}], "cells": [["78020", true, "이미지와 상품명에서 볼 수 있듯이 이 제품은 이층침대나 복층에서 사용하는 계단이면서 동시에 서랍과 수납장 기능을 가진 가구입니다. 후보 F는 유아동 가구의 계단형 서랍을 명시하고 있으며, 아동침대에 연결된 계단형 수납을 포함한다고 정의되어 있어 가장 적합합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/a92febb7c7dfe0f43faadb8ca901e886640f83335bff95bc31255ba4be9de488.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/a92febb7c7dfe0f43faadb8ca901e886640f83335bff95bc31255ba4be9de488.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "78008", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "69d7d74fa0daa4bb2cd60e74", "name": "비스포크 빌트인 김치냉장고장 냉장고틈새장 1개", "group": "4.1.1 가구", "gt": "77930", "candidates": [{"leaf": "63656", "rank": 1, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 김치냉장고 > 스탠드형 > 스탠드형 1도어", "desc": "세워 두는 스탠드형 김치냉장고 중 문이 1개인 단일 도어 제품을 담는 카테고리입니다. 앞쪽으로 여는 자립형 외관과 한 개의 큰 보관 공간을 중심으로 구성된 구조가 특징입니다."}, {"leaf": "77959", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 주방가구 > 주방수납장 > 키큰수납장", "desc": "주방가구의 키큰수납장은 바닥에 두는 세로형 높은 수납장으로, 그릇과 식재료, 소형가전을 넉넉한 내부 공간에 정리해 보관하는 독립형 가구입니다. 문이 달린 큰 본체 구조가 중심이며 주방 수납 기능이 강조됩니다."}, {"leaf": "63654", "rank": 3, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 김치냉장고 > 뚜껑형 > 뚜껑형 2도어", "desc": "가전/디지털 냉장고·밥솥·주방가전의 김치냉장고에서 본체 상단 뚜껑을 여는 뚜껑형 구조에, 내부 저장 공간이 2개로 나뉘어 각각 열고 닫는 2도어 구성의 제품입니다. 김치와 식재료를 저온으로 보관하도록 설계된 뚜껑형 김치냉장고입니다."}, {"leaf": "77956", "rank": 4, "breadcrumb": "가구/홈데코 > 가구 > 주방가구 > 주방수납장 > 밥솥/렌지대", "desc": "주방수납장 가운데 전자레인지와 전기밥솥을 올려 두는 낮은 바닥형 수납장으로, 아래쪽에는 쌀통과 조리도구를 함께 보관할 수 있는 구조입니다. 가정 주방에서 가전 배치와 주변 수납을 함께 맡는 전용 가구입니다."}, {"leaf": "77930", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 수납가구 > 서랍/수납장 > 틈새수납장", "desc": "틈새수납장은 가구/홈데코의 수납가구 중 폭이 매우 좁은 공간을 채우도록 만든 세로형 슬림 수납장입니다. 냉장고 옆이나 세탁기 옆처럼 좁은 공간에 맞는 긴 구조와 작은 깊이, 이동이 쉬운 구성으로 생활용품을 정리합니다."}, {"leaf": "63658", "rank": 6, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 김치냉장고 > 스탠드형 > 스탠드형 4도어 이상", "desc": "가전/디지털의 냉장고·밥솥·주방가전 중 김치냉장고에서 세워서 여는 스탠드형 구조에 문이 4개 이상 나뉜 제품을 뜻합니다. 각 칸을 구역별로 나눠 김치와 식재료, 음료를 분리 보관하는 형태입니다."}, {"leaf": "63653", "rank": 7, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 김치냉장고 > 뚜껑형 > 뚜껑형 1도어", "desc": "가전/디지털의 냉장고·밥솥·주방가전 중 김치냉장고에 속하는 뚜껑형 1도어는 상부 뚜껑을 들어 올려 여는 단일 저장실 구조의 제품입니다. 김치와 식재료를 한 칸에 보관하는 1개 도어형 뚜껑식 김치냉장고입니다."}, {"leaf": "63657", "rank": 8, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 김치냉장고 > 스탠드형 > 스탠드형 3도어", "desc": "가전/디지털의 김치냉장고 중 바닥에 세워 쓰는 스탠드형 구조에 문 3개로 구획된 보관칸을 갖춘 제품입니다. 김치와 식재료를 칸별로 나눠 담기 좋은 3도어 전면 개폐형 스탠드형 김치냉장고를 뜻합니다."}, {"leaf": "63659", "rank": 9, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 김치냉장고 > 빌트인", "desc": "가전/디지털의 냉장고/밥솥/주방가전, 김치냉장고 중 빌트인형은 주방 가구와 싱크대에 맞춰 매립 설치하는 구조로, 주방 공간과 일체감 있게 배치되는 김치 보관용 냉장고입니다. 김치와 발효식품의 보관 온도 유지 기능을 중심으로 설계된 설치형 제품입니다."}, {"leaf": "63633", "rank": 10, "breadcrumb": "가전/디지털 > 냉장고/밥솥/주방가전 > 냉장고 > 일반냉장고 > 1도어 냉장고", "desc": "가전/디지털 주방가전의 일반냉장고 중 냉장실 출입문이 하나인 1도어 냉장고입니다. 하나의 문으로 냉장 보관 공간을 여는 기본형 냉장고로, 냉동 기능은 내부 칸 형태로 구성된 제품이 포함됩니다."}], "cells": [["77930", true, "상품명에 '냉장고틈새장'이 명시되어 있으며, 이미지에서도 좁은 폭을 채울 수 있는 세로형 슬림 수납장의 형태를 띠고 있어 틈새수납장 카테고리에 가장 적합합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/c1557a85f836ee2feb730667446bcec4830e0f4f451bdbc265e86b5e95769e8a.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/c1557a85f836ee2feb730667446bcec4830e0f4f451bdbc265e86b5e95769e8a.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "63656", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "69d8829d2b6f85282e37e435", "name": "가구느낌 물방울오발 이동형 스툴 간이 보조의자", "group": "4.1.1 가구", "gt": "77917", "candidates": [{"leaf": "77993", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 학생의자 > 학원의자/보조의자", "desc": "학원의자/보조의자는 학원, 교실, 강의실 같은 수업 공간에서 책상과 함께 쓰는 학생용 착석 가구입니다. 여러 사람이 함께 배치해 쓰기 쉬운 기본 착석 구조와 가볍고 실용적인 보조 의자 형태가 특징입니다."}, {"leaf": "77919", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 의자 > 스텝스툴", "desc": "가구/홈데코 > 가구 > 의자 > 스텝스툴은 발판처럼 낮은 한두 단이 붙어 있어 높은 곳에 오르내릴 때 발을 디디는 보조 의자입니다. 발을 올려 체중을 지지하는 구조와 짧은 이동용 계단 형태가 핵심인 가구입니다."}, {"leaf": "77917", "rank": 3, "breadcrumb": "가구/홈데코 > 가구 > 의자 > 스툴", "desc": "의자 범주의 스툴은 한 사람이 잠시 앉는 간단한 보조 좌석으로, 화장대·주방·현관 등에서 쓰기 좋은 작은 크기의 앉는 가구입니다. 낮은 높이와 가벼운 구조로 이동이 쉬우며, 실내 공간에서 보조 의자로 활용됩니다."}, {"leaf": "77827", "rank": 4, "breadcrumb": "완구/취미 > 악기/음향기기 > 악기소품/용품 > 연주용 의자", "desc": "완구/취미의 악기/음향기기용 악기소품에서 연주용 의자는 악기 연주 자세를 돕는 높이 조절형 의자와 스툴을 분류합니다. 앉아서 연주할 때 쓰는 쿠션형 좌석, 회전 기능, 연주 자세 지지 구조가 특징입니다."}, {"leaf": "78027", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 야외가구 > 야외의자", "desc": "가구/홈데코의 야외가구 중 정원, 테라스, 발코니에서 1명이 앉아 쓰는 단일 좌석 의자입니다. 등받이·팔걸이·접이식·적층형 구조를 갖춘 실외용 의자 상품이 이 카테고리에 속합니다."}, {"leaf": "77991", "rank": 6, "breadcrumb": "가구/홈데코 > 가구 > 학생/사무용가구 > 학생의자 > 좌식의자", "desc": "좌식의자는 가구/홈데코의 학생/사무용가구에서 바닥에 직접 앉는 좌식 학습용으로 쓰는 의자입니다. 낮은 높이와 바닥 가까운 착좌 구조가 특징이며, 공부나 독서에 맞춘 안정적인 좌식 자세를 돕습니다."}, {"leaf": "77912", "rank": 7, "breadcrumb": "가구/홈데코 > 가구 > 의자 > 인테리어의자", "desc": "인테리어의자는 가구/홈데코의 의자 중 실내 공간의 분위기와 장식성을 살리는 일반 높이의 착석용 의자입니다. 디자인, 소재, 형태의 완성도가 돋보이며 식탁 주변이나 거실, 방 인테리어에 어울리는 상품을 포함합니다."}, {"leaf": "77913", "rank": 8, "breadcrumb": "가구/홈데코 > 가구 > 의자 > 좌식의자", "desc": "가구/홈데코의 의자 중 바닥 생활에 맞춘 낮은 높이의 좌석으로, 바닥에 앉을 때 허리와 자세를 받쳐 주는 등받이형 좌식의자입니다. 좌식 공간에서 사용하는 독립된 좌석 제품을 중심으로 분류됩니다."}, {"leaf": "78014", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 유아동가구 > 유아의자", "desc": "유아의자는 가구/홈데코 > 가구 > 유아동가구에서 영유아와 어린아이가 앉도록 만든 전용 의자와 보조 의자를 뜻합니다. 아이 체형에 맞춘 낮은 좌면 높이와 작은 크기, 식탁용 하이체어·부스터시트·이유식 의자처럼 앉는 기능을 중심으로 한 제품이 해당됩니다."}, {"leaf": "77920", "rank": 10, "breadcrumb": "가구/홈데코 > 가구 > 의자 > 의자부속품", "desc": "의자부속품은 가구/홈데코 > 가구 > 의자 범주의 의자에 결합해 기능을 보완하거나 수리·교체에 쓰는 부품과 액세서리입니다. 바퀴, 팔걸이, 등받이, 좌판, 높낮이 조절 장치, 미끄럼방지 패드처럼 의자의 구조와 사용성을 구성하는 구성품이 해당됩니다."}], "cells": [["77917", true, "해당 상품은 등받이가 없는 원형 좌석에 바퀴와 높낮이 조절 기능이 있는 간이 의자로, 실내에서 다용도로 사용되는 보조 좌석인 스툴의 특성에 완벽히 부합합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/458763f7dadb0bbef9e3e6b4f861ed5544cb16c3db17647b54bc4a1a74d2ef77.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/458763f7dadb0bbef9e3e6b4f861ed5544cb16c3db17647b54bc4a1a74d2ef77.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "77993", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}, {"id": "69d882ca2b6f85282e38fea4", "name": "지누스 베이직 메모리폼 토퍼 Q", "group": "4.1.1 가구", "gt": "77875", "candidates": [{"leaf": "112380", "rank": 1, "breadcrumb": "가구/홈데코 > 가구 > 매트리스 > 접이식 매트리스", "desc": "가구/홈데코 > 가구 > 매트리스 > 접이식 매트리스는 여러 구간으로 접히는 구조의 매트리스로, 바닥에 펼쳐 쓰고 접어서 보관하거나 이동하기 쉽도록 설계된 제품입니다. 간이침구나 임시 침대로 활용되는 이동형 매트리스 형태입니다."}, {"leaf": "78057", "rank": 2, "breadcrumb": "가구/홈데코 > 가구 > 토퍼 > 솜/구스 토퍼", "desc": "가구/홈데코 가구의 토퍼 중 솜이나 구스 충전재를 넣어 만든 얇은 보조 매트입니다. 침대 매트리스나 바닥 위에 올려 쿠션감과 보온성을 더하는 수면용 토퍼입니다."}, {"leaf": "77875", "rank": 3, "breadcrumb": "가구/홈데코 > 가구 > 토퍼 > 메모리폼토퍼", "desc": "가구/홈데코의 가구 토퍼 중 내부 충전재가 메모리폼인 토퍼로, 체압을 분산하며 몸의 형태에 맞춰 천천히 눌리고 복원되는 쿠션감이 특징입니다. 기존 매트리스 위에 올려 수면면의 지지감과 편안함을 보완하는 상품입니다."}, {"leaf": "77871", "rank": 4, "breadcrumb": "가구/홈데코 > 가구 > 매트리스 > 기타매트리스/내장재", "desc": "매트리스 하위에서 본넬스프링, 독립스프링, 라텍스, 메모리폼, 물침대, 유아, 접이식 유형으로 분류되는 상품을 담는 범주이며, 기타 형태의 완제품 매트리스와 매트리스 내부에 쓰이는 내장재·충전재를 포함한다. 구조와 용도가 다양한 비정형 매트리스 및 내부 소재를 함께 분류한다."}, {"leaf": "77868", "rank": 5, "breadcrumb": "가구/홈데코 > 가구 > 매트리스 > 메모리폼매트", "desc": "가구/홈데코의 매트리스 중 내부 충전재의 대부분이 메모리폼인 수면용 매트리스로, 체형과 하중에 맞춰 천천히 눌리며 몸을 감싸듯 지지하는 제품입니다. 눕는 압력을 따라 형체를 잡아주는 메모리폼 구조가 핵심인 카테고리입니다."}, {"leaf": "78091", "rank": 6, "breadcrumb": "가구/홈데코 > 침구 > 유아동침구 > 유아동베개 > 유아동베개솜/속", "desc": "유아동베개솜/속은 유아와 아동용 베개의 형태를 잡아 주는 내부 충전재와 속재를 분류하는 카테고리입니다. 솜, 메모리폼, 라텍스처럼 베개 안에 채워지는 재료와 속본체가 포함됩니다."}, {"leaf": "78085", "rank": 7, "breadcrumb": "가구/홈데코 > 침구 > 유아동침구 > 유아동요/패드 > 유아동요/요토퍼", "desc": "유아동요/요토퍼는 유아동침구의 바닥용 수면 깔개로, 아이가 눕거나 잘 때 침대나 바닥 위에 직접 깔아 쓰는 요와 토퍼 형태의 완제품을 담는 카테고리입니다. 바닥의 쿠션감을 보완하고 수면 시 편안한 바닥면을 만드는 두께감 있는 깔개가 중심입니다."}, {"leaf": "81838", "rank": 8, "breadcrumb": "스포츠/레져 > 캠핑 > 침낭/매트/해먹 > 베개/담요", "desc": "캠핑/레져용 침구 소품으로, 휴식과 취침 때 머리 받침과 보온을 담당하는 베개와 담요가 중심인 카테고리입니다. 야외에서 가볍게 휴대하며 몸을 편안하게 받쳐 주고 덮어 주는 보조 침구류를 담습니다."}, {"leaf": "77874", "rank": 9, "breadcrumb": "가구/홈데코 > 가구 > 토퍼 > 라텍스토퍼", "desc": "라텍스토퍼는 가구/홈데코 > 가구 > 토퍼에 속하는, 라텍스 충전재의 탄성과 통기성을 살린 얇은 보조 매트입니다. 침대나 매트리스 위에 덧대어 사용하는 구조로, 고무 수액을 굳힌 라텍스 소재가 핵심인 토퍼입니다."}, {"leaf": "77876", "rank": 10, "breadcrumb": "가구/홈데코 > 가구 > 토퍼 > 메모텍스토퍼", "desc": "가구/홈데코의 토퍼 중 메모리폼 충전재를 사용한 메모텍스토퍼로, 침대나 매트리스 위에 올려 사용하는 얇은 깔개형 상단 패드입니다. 체온과 체중에 반응해 몸을 감싸는 메모리폼의 특성을 지닌 토퍼입니다."}], "cells": [["77875", true, "상품명에 '메모리폼 토퍼'가 명확히 명시되어 있으며, 해당 제품의 소재와 용도가 '메모리폼토퍼' 카테고리의 정의와 정확히 일치합니다.", null]], "_img_data": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/080021e2d650c94f24ad8b5419285dae6de83e911ba33843b5fd714818b37e5c.jpg", "image": "https://alwayz-assets.s3.amazonaws.com/pikachu-gt/pikachu-gt-smoke-001/images/080021e2d650c94f24ad8b5419285dae6de83e911ba33843b5fd714818b37e5c.jpg", "image_status": "ok", "nc": 1, "np": 1, "baseline": "112380", "baseline_correct": false, "grp_key": "verify::4.1.1 가구::1"}], "sync_url": "https://qnhwcwsizommxuqfpalo.supabase.co", "reviewer_default": "김민지", "tag_prefixes": {"tag": "[판정] ", "url": "[URL] ", "gtc": "[GTC] "}, "sheet_reviews": {}, "supabase_url": "https://qnhwcwsizommxuqfpalo.supabase.co", "supabase_key": "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"}</script>
+<script>
+(function(){
+  var D=JSON.parse(document.getElementById('data').textContent);
+  var RUNS=D.runs||[], SAMPLES=D.samples||[], N=D.n_runs||RUNS.length;
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function escAttr(s){return esc(s).replace(/"/g,'&quot;');}
+  function dash(v){return (v==null||v==='')?'—':v;}
+  function pct(v){return (v==null||v==='')?'—':(v*100).toFixed(1);}
+  function money(v){return (v==null||v==='')?'—':('$'+(+v).toFixed(v<1?4:2));}
+
+  // per-sample memos (SAMPLE-scoped: keyed by id, SHARED with the single-run viewer via the same
+  // localStorage key). D.notes (an embedded notes.json) seeds samples with no local entry yet.
+  var NOTES=D.notes||{}, LS='llmh_note:';
+  var dirty=false, lastExport=null;  // 유실 방지: 내보내기 이후 변경 여부 / 마지막 내보내기 시각
+  function noteGet(id){try{var v=localStorage.getItem(LS+id);if(v!==null)return v;}catch(e){}return NOTES[id]||'';}
+  function hasNote(id){return noteGet(id).trim()!=='';}
+  function allNoteIds(){var s=Object.create(null);Object.keys(NOTES).forEach(function(k){s[k]=1;});
+    try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k&&k.indexOf(LS)===0)s[k.slice(LS.length)]=1;}}catch(e){}return Object.keys(s);}
+  function download(name,text,mime){var b=new Blob([text],{type:mime});var a=document.createElement('a');
+    a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);}
+  function csvCell(s){var v=String(s==null?'':s);if(/^[=+\-@\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
+  function noteSet(id,t){try{localStorage.setItem(LS+id,t);dirty=true;return true;}catch(e){return false;}}
+  function hasGtPick(id){return noteParts(id).gtPicks.length>0;}
+  function nowHM(){try{return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});}catch(e){return '완료';}}
+  // 공유 시트 동기화 (Apps Script 웹앱): 저장할 때마다 전송. localStorage는 항상 안전망으로 유지.
+  var SYNC=D.sync_url||'', reviewer='';var SB_URL=D.supabase_url||'',SB_KEY=D.supabase_key||'';
+  var SHEET_REVIEWS=D.sheet_reviews||{};  // id -> [{ts,reviewer,tags,url,note}], read-only generation-time snapshot
+  try{reviewer=localStorage.getItem('llmh_reviewer')||'';}catch(e){}
+  if(!reviewer&&D.reviewer_default)reviewer=D.reviewer_default;  // shard 파일별 프리필
+  var sampById={};SAMPLES.forEach(function(s){sampById[String(s.id)]=s;});
+  function setSyncStat(t,cls){var el=document.getElementById('syncstat');if(el){el.textContent=t;el.className='syncstat'+(cls?' '+cls:'');}}
+  function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var p=noteParts(id),s=sampById[String(id)];
+    var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};
+    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}
+    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
+      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();SERVERSIG[String(id)]=locSig(id);renderUnsynced();}else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})
+      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}
+function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[];
+    function page(off){fetch(SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit=1000&offset='+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}})
+      .then(function(r){return r.ok?r.json():[];})
+      .then(function(rows){acc=acc.concat(rows);if(rows.length===1000){page(off+1000);}else{apply(acc);}})
+      .catch(function(){setUnsyncErr();});}
+    function apply(rows){var n=0;rows.forEach(function(x){var id=String(x.sample_id);
+      if(!sampById[id])return;
+      var stags=String(x.tags||'').split('|').filter(Boolean),spicks=String(x.gt_candidates||'').split('|').filter(Boolean),surl=String(x.url||''),sbody=String(x.note||'');
+      SERVERSIG[id]=sigOf(stags,surl,spicks,sbody);
+      var loc=noteParts(id);
+      var tags=loc.tags.length?loc.tags:stags;
+      var picks=(loc.gtPicks&&loc.gtPicks.length)?loc.gtPicks:spicks;
+      var url=(loc.url&&loc.url.trim())?loc.url:surl;
+      var body=loc.body.trim()!==''?loc.body:sbody;
+      var t=noteCombine(tags,url,picks,body);
+      if(t.trim()!==''&&t!==noteGet(id)&&noteSet(id,t))n++;});
+      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}
+      PULLED=true;renderUnsynced();}
+    page(0);}
+var SERVERSIG={},PULLED=false;
+function sigOf(tags,url,picks,body){return (tags||[]).filter(Boolean).sort().join('|')+'##'+(url||'')+'##'+(picks||[]).filter(Boolean).sort().join('|')+'##'+(body||'');}
+function rjoin(a){return (a||[]).join('|').split('|');}
+function locSig(id){var p=noteParts(id);return sigOf(rjoin(p.tags),p.url,rjoin(p.gtPicks),p.body);}
+function locEmpty(id){var p=noteParts(id);return !((p.tags&&p.tags.length)||(p.gtPicks&&p.gtPicks.length)||(p.url&&p.url.trim())||(p.body&&p.body.trim()));}
+function unsyncedIds(){var out=[];for(var id in sampById){if(locEmpty(id))continue;if(SERVERSIG[String(id)]!==locSig(id))out.push(id);}return out;}
+function setUnsyncErr(){var el=document.getElementById('unsyncbar');if(!el)return;el.className='unsync';el.textContent='\u26a0 \ub3d9\uae30\ud654 \uc0c1\ud0dc \ud655\uc778 \uc2e4\ud328 \u2014 \uc0c8\ub85c\uace0\uce68 \uad8c\uc7a5';}
+function renderUnsynced(){var el=document.getElementById('unsyncbar');if(!el)return;
+      if(!PULLED){el.className='unsync';el.textContent='\ub3d9\uae30\ud654 \ud655\uc778 \uc911\u2026';return;}
+      var n=unsyncedIds().length;
+      if(!n){el.className='unsync ok';el.textContent='\u2714 \ubaa8\ub450 \uc800\uc7a5\ub428';return;}
+      el.className='unsync warn';el.innerHTML='\u26a0 \ubbf8\uc800\uc7a5 <b>'+n+'</b>\uac74 <button id="pushall">\uc804\uccb4 \uc800\uc7a5</button> <button id="showunsync">\ubaa9\ub85d</button>';
+      var b=document.getElementById('pushall');if(b)b.onclick=pushAllUnsynced;
+      var b2=document.getElementById('showunsync');if(b2)b2.onclick=showUnsyncList;}
+function showUnsyncList(){var ids=unsyncedIds();var list=ids.map(function(x){var s=sampById[String(x)];return (s&&s.name?s.name:'(?)')+'  |  '+x;});
+      console.warn('\ubbf8\uc800\uc7a5 \ubaa9\ub85d('+ids.length+'):',list);try{alert('\ubbf8\uc800\uc7a5 '+ids.length+'\uac74\n\n'+list.join('\n'));}catch(e){}}
+function pushAllUnsynced(){var ids=unsyncedIds();if(!ids.length)return;pushList(ids,0);}
+function pushList(ids,attempt){var i=0,ok=0,failed=[];
+      var b=document.getElementById('pushall');if(b){b.disabled=true;b.textContent='\uc800\uc7a5 \uc911\u2026';}
+      function step(){if(i>=ids.length){
+        if(failed.length&&attempt<2){setSyncStat('\uc7ac\uc2dc\ub3c4 '+failed.length+'\uac74\u2026','');setTimeout(function(){pushList(failed,attempt+1);},900);return;}
+        setSyncStat('\uc800\uc7a5 \uc644\ub8cc '+ok+'\uac74'+(failed.length?(' / \uc2e4\ud328 '+failed.length):''),failed.length?'bad':'ok');
+        if(failed.length){console.error('\uc800\uc7a5 \uc2e4\ud328 \uc0d8\ud50c:',failed.map(function(x){var s=sampById[String(x)];return {id:x,name:s&&s.name};}));}
+        renderUnsynced();return;}
+        var id=ids[i++],p=noteParts(id),s=sampById[String(id)];
+        var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};
+        if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}
+        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
+          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{failed.push(id);try{r.text().then(function(t){console.error('\uc800\uc7a5 \uc2e4\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})
+          .catch(function(){failed.push(id);})
+          .then(function(){setSyncStat('\uc800\uc7a5 '+i+'/'+ids.length,'ok');step();});}
+      step();}
+setTimeout(syncPull,0);
+  var pushTimers={};  // sample id별 debounce — 단일 타이머면 다음 샘플로 넘어갈 때 이전 샘플 저장이 씹힘
+  function scheduleSync(id){if(!SYNC)return;if(!reviewer){setSyncStat('이름 입력 필요(로컬만 저장)','bad');return;}
+    if(pushTimers[id])clearTimeout(pushTimers[id]);
+    pushTimers[id]=setTimeout(function(){delete pushTimers[id];syncPush(id);},800);}
+  // 리뷰 판정 태그: 메모 첫 줄에 "[판정] a, b"로 인라인 저장 → localStorage/import/export/viewer 연동 그대로 재사용
+  // GT는 후보 카드를 직접 선택하는 것만으로 끝 — 클릭 순서=우선순위, 별도 확정 상태 없음.
+  // 후보군에 정답이 없다고 판단되면 목록 끝의 가상 후보(NOT_IN_POOL)를 고르면 됨.
+  // tag/url/gt-candidate note prefixes come from the server (results_io.py) — single source of
+  // truth shared with crosscheck_boards.py's Python-side note seeding.
+  var TP=D.tag_prefixes||{};
+  var TAGS=['정답오류','정답애매','정보부족','모델오류','기타'],TAGPFX=TP.tag,URLPFX=TP.url,GTCPFX=TP.gtc;
+  var NOT_IN_POOL='__none__';
+  function noteParts(id){var raw=noteGet(id),lines=raw.split('\n'),tags=[],url='',gtPicks=[],c=0;  // 순서: 태그·URL·GT후보(전부 선택)
+    if(lines[0]&&lines[0].indexOf(TAGPFX)===0){tags=lines[0].slice(TAGPFX.length).split(',').map(function(x){return x.trim();}).filter(Boolean);c++;}
+    if(lines[c]&&lines[c].indexOf(URLPFX)===0){url=lines[c].slice(URLPFX.length).trim();c++;}
+    if(lines[c]&&lines[c].indexOf(GTCPFX)===0){gtPicks=lines[c].slice(GTCPFX.length).split('|').map(function(x){return x.trim();}).filter(Boolean);c++;}
+    return {tags:tags,url:url,gtPicks:gtPicks,body:lines.slice(c).join('\n')};}
+  function noteCombine(tags,url,gtPicks,body){return (tags.length?TAGPFX+tags.join(', ')+'\n':'')+(url&&url.trim()?URLPFX+url.trim()+'\n':'')+
+    ((gtPicks&&gtPicks.length)?GTCPFX+gtPicks.join('|')+'\n':'')+body;}
+  function noteSave(id,tags,url,gtPicks,body){return noteSet(id,noteCombine(tags,url,gtPicks,body));}
+  function updateTagSum(){var c={};allNoteIds().forEach(function(id){noteParts(id).tags.forEach(function(t){c[t]=(c[t]||0)+1;});});
+    var el=document.getElementById('tagsum');
+    if(el){var ps=TAGS.filter(function(t){return c[t];}).map(function(t){return t+' '+c[t];});
+      el.textContent=ps.length?('판정 '+ps.join(' · ')):'';}
+    var st=document.getElementById('status');  // 진행률 + 저장 상태 (dirty=아직 저장 안됨)
+    if(st){var done=SAMPLES.filter(function(s){return hasNote(s.id);}).length;
+      var gtDone=SAMPLES.filter(function(s){return hasGtPick(s.id);}).length;
+      var exp=done?(dirty?' · 아직 저장 안됨':' · 저장됨'+(lastExport?' '+lastExport:'')):'';
+      st.textContent='검수 '+done+' / '+SAMPLES.length+' · GT 확인 '+gtDone+' / '+SAMPLES.length+exp;
+      st.className='status'+(done&&dirty?' warn':'');}}
+  function openLightbox(src){var lb=document.getElementById('lightbox');
+    if(!lb){lb=document.createElement('div');lb.id='lightbox';lb.innerHTML='<img alt="">';document.body.appendChild(lb);
+      lb.addEventListener('click',function(){lb.classList.remove('on');});}
+    lb.querySelector('img').src=src;lb.classList.add('on');}
+  document.addEventListener('keydown',function(e){var lb=document.getElementById('lightbox');  // ESC로 라이트박스 우선 닫기
+    if(lb&&lb.classList.contains('on')&&e.key==='Escape'){lb.classList.remove('on');e.stopPropagation();e.preventDefault();}},true);
+  var note=[]; if(D.truncated) note.push('샘플 '+D.n_samples+'개 중 '+D.embedded_samples+'개만 임베드(--limit).');
+  var nolab=RUNS.filter(function(r){return r.has_labels===false;}).length;
+  if(nolab) note.push(nolab+'개 run은 labels.json 없음 → 정오 pred==gt 근사(equiv 미반영, 재채점 시 정확).');
+  if(D.img_skipped) note.push('이미지 '+D.img_skipped+'개는 상한 초과/로드 실패로 미임베드(--max-img 상향).');
+  document.getElementById('note').textContent=note.join('  ·  ');
+
+  // run short label (for cross columns / detail)
+  function runLabel(r){return r.model+' · '+r.think+' · s'+r.shuf+' · n'+r.ens_size;}
+  function runShort(r){return (r.model||'?').replace(/^(openai|google|anthropic)\//,'').replace(/^gpt-|^gemini-/,'')+'/'+(r.think||'-').slice(0,2)+'/s'+r.shuf;}
+
+  // ---- Tab A: leaderboard --------------------------------------------------
+  var COLS=[
+    {k:'model',l:'model',t:'s',cls:'l',d:'모델 (provider/모델명)'},{k:'think',l:'think',t:'s',cls:'l',d:'추론(reasoning) 강도 설정'},
+    {k:'shuf',l:'shuf',t:'n',d:'후보 순서 셔플 여부 (1=셔플, 0=원본 rank순)'},{k:'ens_size',l:'ens',t:'n',d:'앙상블 크기 = 샘플당 투표에 참여한 멤버 수'},{k:'n_scored',l:'N',t:'n',d:'채점된 샘플 수'},
+    {k:'member',l:'개별%',t:'p',d:'멤버 개별 정확도 평균 (투표 전)'},{k:'vote',l:'앙상블%',t:'p',d:'멤버 다수결로 뽑은 최종 답의 정확도 (기본 정렬)'},{k:'oracle',l:'oracle%',t:'p',d:'멤버 중 하나라도 맞힌 비율 (앙상블 상한)'},
+    {k:'dvm',l:'Δv-m',t:'ps',d:'앙상블 − 개별. 투표가 개별 평균 대비 올린 폭'},{k:'baseline',l:'base%',t:'p',d:'후보 1순위(#0) 정확도 = 모델 없이 후보1위만 답으로 썼을 때'},{k:'lift',l:'lift',t:'ps',d:'앙상블 − base. 모델 선택이 후보1위 단독 대비 개선한 폭'},
+    {k:'correct',l:'맞힘',t:'n',d:'정답 수'},{k:'wrong',l:'틀림',t:'n',d:'오답 수'},{k:'none',l:'none',t:'n',d:'무응답 수 (기권/합의 실패)'},{k:'err',l:'err',t:'n',d:'에러 수 (parse_fail+refusal+truncated+api_error)'},
+    {k:'cost_total',l:'$합계',t:'m',d:'총 API 비용 (USD)'},{k:'cost_per_corr',l:'$/맞힘',t:'m',d:'정답 1건당 비용'},{k:'p50ms',l:'p50ms',t:'n',d:'응답 지연 중앙값 (밀리초)'},
+  ];
+  function fmtCell(r,c){
+    var v=r[c.k];
+    if(c.t==='p') return pct(v);
+    if(c.t==='ps') return (v==null?'—':(v>0?'+':'')+pct(v));
+    if(c.t==='m') return money(v);
+    if(c.t==='n') return v==null?'—':esc(v);
+    return esc(dash(v));
+  }
+  var sortKey='vote', sortDir=-1;
+  var provFilter=null, thinkFilter=null, shufFilter=null;
+  function lbView(){
+    var rows=RUNS.filter(function(r){
+      if(provFilter!=null&&r.provider!==provFilter)return false;
+      if(thinkFilter!=null&&String(r.think)!==thinkFilter)return false;
+      if(shufFilter!=null&&String(r.shuf)!==shufFilter)return false;
+      return true;});
+    rows.sort(function(a,b){var x=a[sortKey],y=b[sortKey];
+      if(x==null)x=-Infinity; if(y==null)y=-Infinity;
+      if(typeof x==='string'||typeof y==='string'){x=String(a[sortKey]||'');y=String(b[sortKey]||'');return x<y?-sortDir:x>y?sortDir:0;}
+      return (x-y)*sortDir;});
+    return rows;
+  }
+  function renderHead(){
+    document.getElementById('lbhead').innerHTML='<tr>'+COLS.map(function(c){
+      var ar=(c.k===sortKey)?('<span class="ar">'+(sortDir<0?'▼':'▲')+'</span>'):'';
+      return '<th class="'+(c.cls||'')+'" data-k="'+c.k+'" title="'+escAttr(c.d||'')+'">'+esc(c.l)+ar+'</th>';}).join('')+'</tr>';
+    Array.prototype.forEach.call(document.getElementById('lbhead').querySelectorAll('th'),function(th){
+      th.addEventListener('click',function(){var k=th.getAttribute('data-k');
+        if(sortKey===k){sortDir=-sortDir;}else{sortKey=k;sortDir=(k==='model'||k==='think')?1:-1;}
+        renderLb();});});
+  }
+  function renderLb(){
+    renderHead();
+    var rows=lbView();
+    var maxVote=Math.max.apply(null,RUNS.map(function(r){return r.vote||0;}))||1;
+    document.getElementById('lbbody').innerHTML=rows.map(function(r){
+      return '<tr data-run="'+escAttr(r.run_id)+'">'+COLS.map(function(c){
+        var cls=c.cls||''; if(c.t==='ps'&&r[c.k]!=null)cls+=(r[c.k]>0?' pos':(r[c.k]<0?' neg':''));
+        var extra=''; if(c.k==='vote'&&r.vote!=null)extra='<span class="bar" style="width:'+(28*r.vote/maxVote).toFixed(1)+'px"></span>';
+        return '<td class="'+cls+'">'+fmtCell(r,c)+extra+'</td>';}).join('')+'</tr>';}).join('');
+    Array.prototype.forEach.call(document.getElementById('lbbody').querySelectorAll('tr'),function(tr){
+      tr.addEventListener('click',function(){drillToRun(tr.getAttribute('data-run'));});});
+  }
+
+  // filter chips (provider / think / shuf)
+  function uniq(key){var s={};RUNS.forEach(function(r){s[r[key]]=(s[r[key]]||0)+1;});return s;}
+  var chipsEl=document.getElementById('chips'); var chipDefs=[];
+  function addChips(dim,label,setter){var c=uniq(dim);Object.keys(c).sort().forEach(function(k){
+    chipDefs.push({dim:dim,val:String(k),label:label+':'+k,n:c[k],setter:setter});});}
+  addChips('provider','prov',function(v){provFilter=v;});
+  addChips('think','think',function(v){thinkFilter=v;});
+  addChips('shuf','shuf',function(v){shufFilter=v;});
+  chipDefs.forEach(function(cd){var b=document.createElement('button');b.className='chip';b.type='button';b.setAttribute('aria-pressed','false');
+    b.innerHTML=esc(cd.label)+'<span class="n">'+cd.n+'</span>';
+    b.addEventListener('click',function(){
+      var cur=(cd.dim==='provider'?provFilter:cd.dim==='think'?thinkFilter:(shufFilter));
+      var nv=(String(cur)===cd.val)?null:cd.val; cd.setter(nv);
+      chipDefs.forEach(function(o,j){var el=chipsEl.children[j];var c2=(o.dim==='provider'?provFilter:o.dim==='think'?thinkFilter:shufFilter);
+        el.setAttribute('aria-pressed',(String(c2)===o.val)?'true':'false');});
+      renderLb();});   // prov/think/shuf chips are leaderboard-only (they don't filter cross columns)
+    chipsEl.appendChild(b);});
+
+  // ---- Tab B: sample cross matrix -----------------------------------------
+  var pinned=-1;         // run index pinned to the front (from drilldown), -1 = none
+  var cxSort='nc';       // 'nc' hardest-first, or 'pinned' pinned-run-wrong-first
+  var grpFilter=null, ncFilter=null;   // ncFilter: 'allwrong'|'allright'|'split'
+  var idQuery='', memoOnly=false, unreviewedOnly=false, gtUnreviewedOnly=false, baseFilter=null;   // baseFilter: 'ok'(retriever right)|'bad'(retriever wrong)
+  var colOrder=[];       // run indices in display order
+  function computeColOrder(){colOrder=RUNS.map(function(_,i){return i;});
+    if(pinned>=0){colOrder=[pinned].concat(colOrder.filter(function(i){return i!==pinned;}));}}
+  function cxView(){
+    var rows=SAMPLES.filter(function(s){
+      // 상세를 열어둔 샘플은 판정을 남겨도 목록에서 빼지 않는다.
+      // 빼면 resyncSel()이 상세를 닫아버려, 태그 하나 찍자마자 작업이 끊긴다. 닫을 때 정리된다.
+      var editing=(cxSel!=null&&String(s.id)===String(cxSel));
+      if(grpFilter!=null&&String(s.group)!==grpFilter)return false;
+      if(idQuery&&String(s.name||'').toLowerCase().indexOf(idQuery)<0)return false;
+      if(memoOnly&&!hasNote(s.id)&&!editing)return false;
+      if(unreviewedOnly&&hasNote(s.id)&&!editing)return false;   // 미검수만
+      if(gtUnreviewedOnly&&hasGtPick(s.id)&&!editing)return false;   // GT 미확인만
+      if(baseFilter==='ok'&&!s.baseline_correct)return false;   // retriever top-1 already correct
+      if(baseFilter==='bad'&&s.baseline_correct)return false;   // retriever missed (the hard cases)
+      // present-run-aware: nc = runs correct, np = runs where the sample ran (may be < N)
+      if(ncFilter==='allwrong'&&!(s.nc===0&&s.np>0))return false;
+      if(ncFilter==='allright'&&!(s.np>0&&s.nc===s.np))return false;
+      if(ncFilter==='split'&&!(s.nc>0&&s.nc<s.np))return false;
+      return true;});
+    if(cxSort==='pinned'&&pinned>=0){
+      rows=rows.slice().sort(function(a,b){var ca=a.cells[pinned],cb=b.cells[pinned];
+        var wa=ca&&ca[1]?1:0, wb=cb&&cb[1]?1:0; if(wa!==wb)return wa-wb; return a.nc-b.nc;});
+    } else {rows=rows.slice().sort(function(a,b){return a.nc-b.nc||String(a.id).localeCompare(String(b.id));});}
+    return rows;
+  }
+  function renderCxHead(){
+    computeColOrder();
+    var h='<div class="mcell m-nc" title="정답 run 수 / 실행 run 수(≤ 전체 '+N+')">✓/실행</div>'+
+      '<div class="mcell m-memo" title="메모">📝</div>'+
+      '<div class="mcell m-gtdone" title="GT 확인 여부(후보 선택함)">GT</div>'+
+      '<div class="mcell m-name">상품명</div>'+
+      '<div class="mcell m-gt" title="정답의 후보 순위 (#0=1위, 없음=후보군에 없음)">정답#</div>';
+    h+=colOrder.map(function(i){var r=RUNS[i];
+      return '<div class="rhcell'+(i===pinned?' pinned':'')+'" data-run="'+i+'" title="'+escAttr(runLabel(r))+'">'+esc(runShort(r))+'</div>';}).join('');
+    var el=document.getElementById('cxhead'); el.innerHTML=h;
+    Array.prototype.forEach.call(el.querySelectorAll('.rhcell'),function(c){
+      c.addEventListener('click',function(){var i=+c.getAttribute('data-run');pinned=(pinned===i?-1:i);cxSort=(pinned>=0?'pinned':'nc');renderCross();});});
+  }
+  function mountVirtualList(scrollEl,spacerEl,rowH,getRows,rowHtml,onClick,shouldDraw){
+    function draw(){
+      var vh=scrollEl.clientHeight, top=scrollEl.scrollTop, rows=getRows();
+      var first=Math.max(0,Math.floor(top/rowH)-6), last=Math.min(rows.length,Math.ceil((top+vh)/rowH)+6);
+      spacerEl.style.height=(rows.length*rowH)+'px';
+      var html='';
+      for(var i=first;i<last;i++){html+=rowHtml(rows[i],i).replace('style="top:0"','style="top:'+(i*rowH)+'px"');}
+      spacerEl.innerHTML=html;
+      Array.prototype.forEach.call(spacerEl.children,function(el){el.addEventListener('click',function(){onClick(el.getAttribute('data-id'));});});
+    }
+    scrollEl.addEventListener('scroll',draw);
+    window.addEventListener('resize',function(){if(!shouldDraw||shouldDraw())draw();});
+    return draw;
+  }
+  var cxScroll=document.getElementById('cxscroll'), cxSpacer=document.getElementById('cxspacer'), cxRows=[], cxSel=null;
+  function cellHtml(c,r2rank){ if(!c)return '<div class="rcell miss">·</div>';
+    var kind=c[1]?'ok':(c[0]==null?'miss':'bad');
+    var rk=c[0]==null?null:r2rank[c[0]];
+    var txt=c[0]==null?'—':(rk!=null?('#'+rk):esc(c[0]));  // retriever rank (#0=top-1); leaf in title
+    return '<div class="rcell '+kind+'" title="'+escAttr(c[0]==null?'':String(c[0]))+'">'+txt+'</div>';}
+  function rankMap(s){var m={};(s.candidates||[]).forEach(function(c){m[c.leaf]=c.rank;});return m;}
+  function rowHtml(s){
+    var cls='cxrow'+(s.id===cxSel?' sel':'');
+    var nccls=s.nc===0?'bad':(s.nc===s.np?'ok':'');
+    var r2rank=rankMap(s);
+    var gtInPool=(s.gt!=null&&r2rank[s.gt]!=null);
+    var gtrk=gtInPool?('#'+r2rank[s.gt]):(s.gt!=null?'없음':'—');  // 후보 순위; 없음=후보군에 없음
+    var gtcls=gtInPool?(r2rank[s.gt]===0?'gt-top':'gt-mid'):(s.gt!=null?'gt-oop':'');
+    var h='<div class="'+cls+'" data-id="'+escAttr(s.id)+'" style="top:0">'+
+      '<div class="mcell m-nc '+nccls+'" title="'+s.nc+' 정답 / '+s.np+' 실행'+(s.np<N?(' (전체 '+N+' 중)'):'')+'">'+s.nc+'/'+s.np+'</div>'+
+      '<div class="mcell m-memo">'+(hasNote(s.id)?'📝':'')+'</div>'+
+      '<div class="mcell m-gtdone">'+(hasGtPick(s.id)?'✅':'')+'</div>'+
+      '<div class="mcell m-name" title="'+escAttr(s.name||'')+'">'+esc(dash(s.name))+'</div>'+
+      '<div class="mcell m-gt" title="정답 leaf: '+escAttr(String(dash(s.gt)))+'">'+(gtcls?'<span class="gtbadge '+gtcls+'">'+gtrk+'</span>':gtrk)+'</div>';
+    h+=colOrder.map(function(i){var c=s.cells[i];var inner=cellHtml(c,r2rank);
+      return i===pinned?inner.replace('rcell ','rcell pinned '):inner;}).join('');
+    return h+'</div>';
+  }
+  function resyncSel(){  // after cxRows changes (filter/sort/memo edit) keep the open detail's index valid
+    if(cxSel==null)return;
+    var idx=-1;for(var i=0;i<cxRows.length;i++){if(String(cxRows[i].id)===String(cxSel)){idx=i;break;}}
+    cxSelIdx=idx;
+    if(idx<0&&det.classList.contains('open'))closeSample();  // current sample left the view -> close
+  }
+  function renderCross(){
+    renderCxHead(); cxRows=cxView(); resyncSel();
+    var totalW=52+30+34+320+80+N*62;  // meta cols (nc/memo/gtdone/name/gt) + run cols
+    cxSpacer.style.width=totalW+'px';
+    document.getElementById('cxhead').style.minWidth=totalW+'px';
+    drawCross();
+  }
+  var drawCross=mountVirtualList(cxScroll,cxSpacer,30,function(){return cxRows;},rowHtml,openSampleById,paneBon);
+
+  // cross filter chips (sample-level): nc buckets are mutually-exclusive; memo/baseline are toggles.
+  (function(){
+    var gset={};SAMPLES.forEach(function(s){if(s.group!=null)gset[s.group]=(gset[s.group]||0)+1;});
+    Object.keys(gset).sort().forEach(function(g){var b=document.createElement('button');b.className='chip grpchip';b.type='button';b.setAttribute('aria-pressed','false');
+      b.innerHTML=esc(g.replace(/^group:/,''))+'<span class="n">'+gset[g]+'</span>';
+      b.addEventListener('click',function(){grpFilter=(grpFilter===g?null:g);
+        chipsEl.querySelectorAll('.grpchip').forEach(function(e){e.setAttribute('aria-pressed','false');});
+        b.setAttribute('aria-pressed',grpFilter?'true':'false');
+        if(paneBon())renderCross();});
+      chipsEl.appendChild(b);});
+    var seps=[['allwrong','전부틀림'],['split','일부맞힘'],['allright','전부맞힘']];
+    seps.forEach(function(p){var b=document.createElement('button');b.className='chip cxchip';b.type='button';b.setAttribute('aria-pressed','false');
+      b.textContent=p[1];
+      b.addEventListener('click',function(){ncFilter=(ncFilter===p[0]?null:p[0]);
+        chipsEl.querySelectorAll('.cxchip').forEach(function(e){e.setAttribute('aria-pressed','false');});
+        b.setAttribute('aria-pressed',ncFilter?'true':'false');
+        if(paneBon())renderCross();});
+      chipsEl.appendChild(b);});
+    // 칩끼리 서로를 끄므로(메모 <-> 미검수만) 클릭한 칩만 갱신하면 표시가 실제 상태와 어긋난다 -> 전부 다시 칠한다
+    var toggles=[];
+    function paintToggles(){toggles.forEach(function(t){t.b.setAttribute('aria-pressed',t.get()?'true':'false');});}
+    function toggleChip(label,get,set){var b=document.createElement('button');b.className='chip';b.type='button';
+      b.setAttribute('aria-pressed','false');b.textContent=label;
+      b.addEventListener('click',function(){set();paintToggles();if(paneBon())renderCross();});
+      toggles.push({b:b,get:get});chipsEl.appendChild(b);}
+    toggleChip('📝 메모', function(){return memoOnly;}, function(){memoOnly=!memoOnly;if(memoOnly)unreviewedOnly=false;});
+    toggleChip('미검수만', function(){return unreviewedOnly;}, function(){unreviewedOnly=!unreviewedOnly;if(unreviewedOnly)memoOnly=false;});
+    toggleChip('GT 미확인만', function(){return gtUnreviewedOnly;}, function(){gtUnreviewedOnly=!gtUnreviewedOnly;});
+    toggleChip('base정답', function(){return baseFilter==='ok';}, function(){baseFilter=baseFilter==='ok'?null:'ok';});
+    toggleChip('base오답', function(){return baseFilter==='bad';}, function(){baseFilter=baseFilter==='bad'?null:'bad';});
+  })();
+  document.getElementById('q').addEventListener('input',function(e){idQuery=e.target.value.trim().toLowerCase();if(paneBon())renderCross();});
+
+  // memo export/import (sample-scoped; interoperable with the single-run viewer) ---------------
+  function markExported(){dirty=false;lastExport=nowHM();updateTagSum();}
+  function exportNotesJSON(){var o={};allNoteIds().forEach(function(id){var t=noteGet(id);if(t.trim())o[id]=t;});
+    download('notes.json',JSON.stringify(o,null,2),'application/json');markExported();}
+  function exportNotesCSV(){var byId={};SAMPLES.forEach(function(s){byId[String(s.id)]=s;});
+    var lines=['id,name,gt,nc,np,tags,url,note,gt_candidates'];
+    allNoteIds().forEach(function(id){var raw=noteGet(id);if(!raw.trim())return;var p=noteParts(id),s=byId[String(id)]||{};
+      lines.push([id,s.name||'',s.gt||'',s.nc==null?'':s.nc,s.np==null?'':s.np,p.tags.join('|'),p.url,p.body,
+        (p.gtPicks||[]).join('|')].map(csvCell).join(','));});
+    download('notes.csv',lines.join('\n'),'text/csv');markExported();}
+  function parseCSV(text){var rows=[],row=[],cur='',inq=false,i=0,n=text.length;
+    for(;i<n;i++){var ch=text[i];
+      if(inq){if(ch==='"'){if(text[i+1]==='"'){cur+='"';i++;}else inq=false;}else cur+=ch;continue;}
+      if(ch==='"')inq=true;
+      else if(ch===',')  {row.push(cur);cur='';}
+      else if(ch==='\r'){}
+      else if(ch==='\n'){row.push(cur);rows.push(row);row=[];cur='';}
+      else cur+=ch;}
+    if(cur!==''||row.length){row.push(cur);rows.push(row);}
+    return rows;}
+  function csvToNotes(text){var rows=parseCSV(text.replace(/^﻿/,''));if(!rows.length)return null;
+    var head=rows[0].map(function(x){return String(x).trim().toLowerCase();});
+    var iId=head.indexOf('id'),iTags=head.indexOf('tags'),iUrl=head.indexOf('url'),iNote=head.indexOf('note');
+    var iGtC=head.indexOf('gt_candidates');
+    if(iId<0||iNote<0)return null;  // 우리 내보내기 스키마가 아니면 CSV로 취급하지 않음
+    var m={};for(var r=1;r<rows.length;r++){var row=rows[r];if(row.length<=iId)continue;
+      var id=row[iId];if(id==null||id==='')continue;
+      var tags=(iTags>=0&&row[iTags])?String(row[iTags]).split('|').map(function(x){return x.trim();}).filter(Boolean):[];
+      var gtPicks=(iGtC>=0&&row[iGtC])?String(row[iGtC]).split('|').map(function(x){return x.trim();}).filter(Boolean):[];
+      m[String(id)]=noteCombine(tags,iUrl>=0?(row[iUrl]||''):'',gtPicks,row[iNote]||'');}
+    return m;}
+  function applyImport(o){var n=0,f=0;Object.keys(o).forEach(function(id){var v=o[id];
+    if(typeof v==='string'&&v.trim()){if(noteSet(id,v))n++;else f++;}});
+    if(paneBon())renderCross();updateTagSum();
+    alert(n+'개 메모 가져옴'+(f?(' · '+f+'개 저장 실패(브라우저 저장소)'):''));}
+  function importNotes(file){var fr=new FileReader();fr.onload=function(){var txt=String(fr.result);
+    if(/\.csv$/i.test(file.name)){var m=csvToNotes(txt);
+      if(!m){alert('가져오기 실패: id/note 컬럼이 있는 CSV가 아닙니다');return;}applyImport(m);return;}
+    var o;try{o=JSON.parse(txt);}catch(e){o=null;}
+    if(o&&typeof o==='object'&&!Array.isArray(o)){var j={};Object.keys(o).forEach(function(id){if(typeof o[id]==='string')j[id]=o[id];});applyImport(j);return;}
+    var c=csvToNotes(txt);  // 확장자 없이도 CSV면 수용
+    if(c){applyImport(c);return;}
+    alert('가져오기 실패: {id: 메모} JSON 또는 id/note 컬럼 CSV가 필요합니다');};fr.readAsText(file);}
+  document.getElementById('expJson').addEventListener('click',exportNotesJSON);
+  document.getElementById('expCsv').addEventListener('click',exportNotesCSV);
+  document.getElementById('impFile').addEventListener('change',function(e){if(e.target.files&&e.target.files[0])importNotes(e.target.files[0]);e.target.value='';});
+
+  // ---- sample detail (cross): image + candidates + memo + per-model reason/pred/cost ----------
+  var det=document.getElementById('detail'), cxSelIdx=-1;
+  // delegated ONCE (not per-render, since det itself persists across renderSample() calls —
+  // attaching this inside renderSample would stack a new listener on every sample open and
+  // make the toggle appear to do nothing after an even number of accumulated listeners).
+  det.addEventListener('click',function(e){var h=e.target.closest('.cand.has');  // 후보 클릭 시 고른 모델 펼침
+    if(!h||!det.contains(h))return;
+    var panel=h.nextElementSibling;if(!panel||!panel.classList.contains('candmodels'))return;
+    var open=panel.hidden;panel.hidden=!open;var car=h.querySelector('.ccar');if(car)car.textContent=open?'▾':'▸';});
+  function openSampleById(id){for(var i=0;i<cxRows.length;i++){if(String(cxRows[i].id)===String(id)){openSampleIdx(i);return;}}}
+  function openSampleIdx(i){if(i<0||i>=cxRows.length)return;cxSelIdx=i;cxSel=cxRows[i].id;drawCross();renderSample(cxRows[i]);}
+  // 닫을 때 재계산 — 작업 중 유예했던(cxView의 editing) 검수 완료 샘플이 여기서 필터 뷰를 벗어난다.
+  // cxSel을 먼저 비우므로 renderCross -> resyncSel 은 즉시 반환한다(재귀 없음).
+  function closeSample(){det.classList.remove('open');det.innerHTML='';cxSel=null;cxSelIdx=-1;renderCross();}
+  function renderSample(s){
+    var r2rank={},leafDesc={};(s.candidates||[]).forEach(function(c){r2rank[c.leaf]=c.rank;leafDesc[c.leaf]=c.breadcrumb||c.leaf;});
+    var gtrk=(s.gt!=null&&r2rank[s.gt]!=null)?(' (#'+r2rank[s.gt]+')'):(s.gt!=null?' (후보군에 없음)':'');
+    var bar='<div class="nav">'+
+        '<button type="button" class="js-prev"'+(cxSelIdx<=0?' disabled':'')+'>‹</button>'+
+        '<span class="pos">'+(cxSelIdx+1)+' / '+cxRows.length+'</span>'+
+        '<button type="button" class="js-next"'+(cxSelIdx>=cxRows.length-1?' disabled':'')+'>›</button>'+
+      '</div>'+
+      '<span class="pin">'+s.nc+'/'+s.np+' 맞힘 · 정답='+esc(dash(s.gt))+gtrk+
+      (s.baseline!=null?(' · 후보1위 '+(s.baseline_correct?'✓':'✗')):'')+'</span>'+
+      '<span class="sp"></span>'+
+      '<span class="hint">j/k 이동 · n 다음 미검수 · i 이미지<br>1~5 판정 · m 메모 · ? 설명 · ESC 닫기</span>'+
+      '<button type="button" class="js-close">✕</button>';
+    var body='';
+    if(s.name!=null){var q=encodeURIComponent(s.name);  // 실제 상품 확인용 외부 검색
+      body+='<div class="dqname">'+esc(s.name)+'</div>';
+      body+='<div class="srch"><span class="srchlbl">실제 상품 검색 ↗</span>'+
+        '<a href="https://www.google.com/search?q='+q+'" target="_blank" rel="noopener noreferrer">구글</a>'+
+        '<a href="https://www.google.com/search?tbm=isch&amp;q='+q+'" target="_blank" rel="noopener noreferrer">구글 이미지</a>'+
+        '<a href="https://search.shopping.naver.com/search/all?query='+q+'" target="_blank" rel="noopener noreferrer">네이버쇼핑</a>'+
+        '</div>';}
+    if(s._img_data) body+='<img class="dqimg" src="'+escAttr(s._img_data)+'" alt="query image" title="클릭하면 확대" tabindex="0">';
+    else if(s.image!=null) body+='<div class="note">이미지: '+esc(String(s.image))+' (미임베드 — --max-img 상향 후 재생성)</div>';
+    var cands=(s.candidates||[]).slice().sort(function(a,b){
+      var ra=a.rank==null?Infinity:a.rank, rb=b.rank==null?Infinity:b.rank; return ra-rb;});  // rank asc, unknown last
+    var pickCnt={};(s.cells||[]).forEach(function(c){if(c&&c[0]!=null)pickCnt[c[0]]=(pickCnt[c[0]]||0)+1;});  // 후보별 모델 선택 수
+    function drowHtml(i,showPred){var r=RUNS[i],c=s.cells[i];
+      var kind=c?(c[1]?'ok':'bad'):'';
+      var pl=c?c[0]:null;
+      var pv=c?(pl==null?'—(none/err)':(r2rank[pl]!=null?('#'+r2rank[pl]+' ('+pl+')'):String(pl))):'(no data)';
+      var link=r.has_viewer?(' <a href="./'+encodeURIComponent(r.run_id)+'/viewer.html" target="_blank" rel="noopener noreferrer">viewer</a>'):'';
+      return '<div class="drow '+kind+'"><span class="lab">'+esc(runShort(r))+link+'</span>'+
+        (showPred?('<span class="pv">'+esc(pv)+'</span>'):'')+
+        '<span class="rsn">'+esc(c?(c[2]||''):'')+'</span>'+
+        '<span class="cst">'+(c&&c[3]!=null?money(c[3]):'')+'</span>'+
+        '<span>'+(c?(c[1]?'✓':'✗'):'·')+'</span></div>';}
+    if(cands.length){ body+='<div class="dsec" id="candsec"><div class="h">후보 ('+cands.length+', rank 순 · 정답 강조 · □ 클릭으로 GT 선택(클릭 순서=우선순위) · 카드 클릭 시 고른 모델 펼침)</div>';
+      cands.forEach(function(c){var isGt=(c.leaf===s.gt);var n=pickCnt[c.leaf]||0;var wrong=(n>0&&!isGt);  // 모델이 고른 오분류 후보
+        var badge=isGt?'<span class="ctag ct-gt">정답</span>':(wrong?'<span class="ctag ct-wrong">오분류</span>':'');
+        var pickers=colOrder.filter(function(i){return s.cells[i]&&s.cells[i][0]===c.leaf;});  // 이 후보를 고른 모델들
+        body+='<div class="candwrap"><div class="cand'+(isGt?' gt':'')+(wrong?' wrong':'')+(pickers.length?' has':'')+'">'+
+          '<span class="gtchk" data-leaf="'+escAttr(c.leaf)+'" title="GT 후보로 선택"></span><div><div class="bc">'+
+          (pickers.length?'<span class="ccar">▸</span>':'')+esc(c.breadcrumb||c.leaf||'')+badge+'</div>'+
+          (c.desc?'<div class="d">'+esc(c.desc)+'</div>':'')+'</div>'+
+          '<span class="rk">rank '+esc(dash(c.rank))+'</span>'+
+          (n>0?'<span class="pick" title="이 후보를 고른 모델 수">'+n+'표</span>':'')+'</div>'+
+          (pickers.length?'<div class="candmodels" hidden>'+pickers.map(function(i){return drowHtml(i,false);}).join('')+'</div>':'')+
+          '</div>';});
+      body+='<div class="candwrap"><div class="cand"><span class="gtchk" data-leaf="'+NOT_IN_POOL+'" title="GT 후보로 선택"></span>'+
+        '<div><div class="bc">후보에 없음 / 다른 정답</div></div></div></div>';
+      var nullP=colOrder.filter(function(i){return !(s.cells[i]&&s.cells[i][0]!=null);});  // 후보에 안 붙는 무응답/에러
+      if(nullP.length){body+='<div class="candwrap"><div class="cand has none"><div><div class="bc"><span class="ccar">▸</span>무응답 / 에러</div></div>'+
+        '<span class="pick">'+nullP.length+'표</span></div>'+
+        '<div class="candmodels" hidden>'+nullP.map(function(i){return drowHtml(i,false);}).join('')+'</div></div>';}
+      body+='</div>'; }
+    (function(){  // 정답 vs 모델 합의 설명문 비교 (판단이 갈리는 경우에만)
+      var l2c={};cands.forEach(function(c){l2c[c.leaf]=c;});
+      var consLeaf=null,consN=0;Object.keys(pickCnt).forEach(function(k){if(pickCnt[k]>consN){consN=pickCnt[k];consLeaf=k;}});
+      var gtC=l2c[s.gt];
+      if(s.gt==null||!consLeaf||(consLeaf===s.gt&&gtC))return;  // 모델이 정답에 합의하면 비교 불필요
+      function col(cls,head,cand,na){return '<div class="cmpcol '+cls+'"><div class="cmph">'+head+'</div>'+
+        (cand?('<div class="cmpbc">'+esc(cand.breadcrumb||'')+'</div><div class="cmpd">'+esc(cand.desc||'(설명문 없음)')+'</div>')
+             :'<div class="cmpd na">'+na+'</div>')+'</div>';}
+      var cc=l2c[consLeaf];
+      body+='<div class="dsec"><div class="h">정답 vs 모델 합의 설명문</div><div class="cmp">'+
+        col('gt','정답'+(gtC&&gtC.rank!=null?' · #'+gtC.rank:''),gtC,'후보군에 없음 — 정답 설명문이 후보에 없습니다')+
+        col('wrong','모델 합의 · '+consN+'표',cc,'—')+
+        '</div></div>';
+    })();
+    (function(){  // 구글 시트 리뷰 이력 (read-only, 생성 시점 스냅샷 — 최신 리뷰가 위로 오도록 역순)
+      var srv=SHEET_REVIEWS[String(s.id)]||[];
+      if(!srv.length)return;
+      body+='<div class="dsec"><div class="h">구글 시트 리뷰 이력 ('+srv.length+'건)</div>'+
+        srv.slice().reverse().map(function(rv){
+          return '<div class="rvhist"><div class="meta">'+esc(rv.ts)+' · '+esc(rv.reviewer)+
+            (rv.tags?rv.tags.split('|').map(function(t){return '<span class="tagbadge">'+esc(t.trim())+'</span>';}).join(''):'')+
+            (rv.url?' · <a href="'+escAttr(rv.url)+'" target="_blank" rel="noopener noreferrer">URL↗</a>':'')+
+            (rv.gt_candidates?rv.gt_candidates.split('|').map(function(l,i){l=l.trim();
+              return '<span class="tagbadge">'+(i+1)+'순위 '+esc(l===NOT_IN_POOL?'후보에 없음':(leafDesc[l]||l))+'</span>';}).join(''):'')+
+            '</div>'+(rv.note?'<div class="note">'+esc(rv.note)+'</div>':'')+'</div>';
+        }).join('')+'</div>';
+    })();
+    body+='<div class="dsec"><div class="h">리뷰 판정 (원클릭)</div><div class="tagrow" id="tagrow"></div></div>';
+    body+='<div class="dsec"><div class="h">실제 상품 URL (선택)</div>'+
+      '<div class="urlrow"><input type="url" class="rvurl" id="rvurl" placeholder="확인한 상품 페이지 URL 붙여넣기"><a class="urlopen" id="urlopen" target="_blank" rel="noopener noreferrer">열기 ↗</a></div></div>';
+    body+='<div class="dsec"><div class="h">메모</div>'+
+      '<textarea class="memo" id="memo" placeholder="판정 근거 · 확인 내용… (자동 저장)"></textarea><div class="memohint" id="memohint"></div></div>';
+    det.innerHTML='<div class="dbar">'+bar+'</div><div class="dbody">'+body+'</div>';
+    det.classList.add('open');
+    det.querySelector('.js-close').addEventListener('click',closeSample);
+    var pb=det.querySelector('.js-prev'),nb=det.querySelector('.js-next');
+    if(pb)pb.addEventListener('click',function(){openSampleIdx(cxSelIdx-1);});
+    if(nb)nb.addEventListener('click',function(){openSampleIdx(cxSelIdx+1);});
+    var im=det.querySelector('.dqimg');  // 이미지 라이트박스
+    if(im)im.addEventListener('click',function(){openLightbox(im.src);});
+    var ta=det.querySelector('#memo'),hintEl=det.querySelector('#memohint'),rtmr=null;
+    var parts=noteParts(s.id),curTags=parts.tags.slice(),tagrow=det.querySelector('#tagrow');
+    var curGtPicks=parts.gtPicks.slice();
+    var urlEl=det.querySelector('#rvurl'),urlOpen=det.querySelector('#urlopen');
+    function refilter(){if(rtmr)clearTimeout(rtmr);
+      rtmr=setTimeout(function(){if(memoOnly||unreviewedOnly||gtUnreviewedOnly){renderCross();}else{drawCross();}},300);}  // 완료 시 필터 뷰에서 빠지도록 재계산
+    function save(){var ok=noteSave(s.id,curTags,urlEl?urlEl.value:parts.url,curGtPicks,ta?ta.value:parts.body);
+      if(hintEl)hintEl.textContent=ok?'저장됨 ✓':'저장 실패 — 브라우저 저장소 사용 불가';
+      updateTagSum();refilter();scheduleSync(s.id);}
+    function paintUrl(){if(!urlOpen)return;var u=(urlEl&&urlEl.value||'').trim();urlOpen.href=u;urlOpen.style.display=u?'':'none';}
+    function paintTags(){if(!tagrow)return;tagrow.innerHTML=TAGS.map(function(t){var on=curTags.indexOf(t)>=0;
+      return '<button type="button" class="tagchip'+(on?' on':'')+'" data-tag="'+escAttr(t)+'">'+esc(t)+'</button>';}).join('');}
+    paintTags();
+    if(tagrow)tagrow.addEventListener('click',function(e){var b=e.target.closest('.tagchip');if(!b)return;
+      var t=b.getAttribute('data-tag'),i=curTags.indexOf(t);
+      if(i>=0)curTags.splice(i,1);else curTags.push(t);paintTags();save();});
+    if(urlEl){urlEl.value=parts.url;urlEl.addEventListener('input',function(){paintUrl();save();});}
+    paintUrl();
+    if(ta){ta.value=parts.body;ta.addEventListener('input',save);}
+    // GT 선택: 후보 카드의 체크박스를 직접 클릭 — 클릭 순서=우선순위. 별도 확정 상태 없음(선택 자체가 판단).
+    var candSec=det.querySelector('#candsec');
+    function paintGtPicks(){if(!candSec)return;
+      Array.prototype.forEach.call(candSec.querySelectorAll('.gtchk'),function(chk){
+        var i=curGtPicks.indexOf(chk.getAttribute('data-leaf'));
+        chk.textContent=i>=0?String(i+1):'';
+        chk.classList.toggle('on',i>=0);
+        var card=chk.closest('.cand');if(card)card.classList.toggle('picked',i>=0);});}
+    paintGtPicks();
+    if(candSec)candSec.addEventListener('click',function(e){var chk=e.target.closest('.gtchk');if(!chk)return;
+      e.stopPropagation();  // 후보 카드 자체의 "모델별 근거 펼침" 클릭과 분리
+      var leaf=chk.getAttribute('data-leaf'),i=curGtPicks.indexOf(leaf);
+      if(i>=0)curGtPicks.splice(i,1);else curGtPicks.push(leaf);
+      paintGtPicks();save();});
+  }
+  document.addEventListener('keydown',function(e){
+    if(!det.classList.contains('open'))return;
+    if(e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'))return;  // don't hijack memo typing
+    if(e.key==='Escape'||e.key==='q'){closeSample();e.preventDefault();}
+    else if(e.key==='j'||e.key==='ArrowDown'||e.key==='ArrowRight'){openSampleIdx(Math.min(cxRows.length-1,cxSelIdx+1));e.preventDefault();}
+    else if(e.key==='k'||e.key==='ArrowUp'||e.key==='ArrowLeft'){openSampleIdx(Math.max(0,cxSelIdx-1));e.preventDefault();}
+    else if(e.key==='i'){var lb=document.getElementById('lightbox');  // 이미지 확대 토글
+      if(lb&&lb.classList.contains('on')){lb.classList.remove('on');e.preventDefault();}
+      else{var im=det.querySelector('.dqimg');if(im){openLightbox(im.src);e.preventDefault();}}}
+    else if(e.key==='m'){var mm=det.querySelector('#memo');if(mm){mm.focus();e.preventDefault();}}  // 메모 포커스
+    else if(e.key==='n'){for(var ni=cxSelIdx+1;ni<cxRows.length;ni++){if(!hasNote(cxRows[ni].id)){openSampleIdx(ni);break;}}e.preventDefault();}  // 다음 미검수
+    else if(e.key>='1'&&e.key<='5'){var chip=det.querySelector('.tagchip[data-tag="'+TAGS[+e.key-1]+'"]');if(chip){chip.click();e.preventDefault();}}  // 판정 태그 토글
+  });
+
+  // ---- tabs & drilldown ----------------------------------------------------
+  function paneBon(){return document.getElementById('paneB').classList.contains('on');}
+  function showTab(which){
+    if(det.classList.contains('open'))closeSample();  // don't leave the detail overlaying the other tab
+    document.getElementById('tabA').setAttribute('aria-selected',which==='A'?'true':'false');
+    document.getElementById('tabB').setAttribute('aria-selected',which==='B'?'true':'false');
+    document.getElementById('paneA').classList.toggle('on',which==='A');
+    document.getElementById('paneB').classList.toggle('on',which==='B');
+    if(which==='B')renderCross();
+  }
+  document.getElementById('tabA').addEventListener('click',function(){showTab('A');});
+  document.getElementById('tabB').addEventListener('click',function(){showTab('B');});
+  function drillToRun(runId){
+    for(var i=0;i<RUNS.length;i++){if(RUNS[i].run_id===runId){pinned=i;cxSort='pinned';break;}}
+    showTab('B');
+  }
+
+  // 용어 설명 오버레이
+  var helpEl=document.getElementById('help');
+  function toggleHelp(on){helpEl.classList.toggle('on',on);}
+  document.getElementById('helpBtn').addEventListener('click',function(){toggleHelp(true);});
+  document.getElementById('helpClose').addEventListener('click',function(){toggleHelp(false);});
+  helpEl.addEventListener('click',function(e){if(e.target===helpEl)toggleHelp(false);});  // 바깥 클릭
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&helpEl.classList.contains('on')){toggleHelp(false);e.stopPropagation();e.preventDefault();}},true);
+  document.addEventListener('keydown',function(e){var t=e.target&&e.target.tagName;  // ? 로 용어 설명 토글
+    if(e.key==='?'&&t!=='INPUT'&&t!=='TEXTAREA'){toggleHelp(!helpEl.classList.contains('on'));e.preventDefault();}});
+
+  window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});  // 미내보내기 유실 경고
+  if(SYNC){  // 공유 시트 동기화 UI (URL 주입 시에만)
+    document.getElementById('syncbox').hidden=false;
+    var rv=document.getElementById('reviewer');rv.value=reviewer;
+    rv.addEventListener('input',function(){reviewer=rv.value.trim();try{localStorage.setItem('llmh_reviewer',reviewer);}catch(e){}
+      setSyncStat(reviewer?'시트 자동저장 ON':'이름 입력 필요(로컬만 저장)',reviewer?'ok':'bad');});
+    document.getElementById('syncAll').addEventListener('click',function(){
+      if(!reviewer){alert('검수자 이름을 먼저 입력해 주세요');return;}
+      var ids=allNoteIds().filter(function(id){return hasNote(id);});ids.forEach(syncPush);
+      setSyncStat(ids.length+'건 저장됨 '+nowHM(),'ok');});
+    setSyncStat(reviewer?'시트 자동저장 ON':'이름 입력 필요(로컬만 저장)',reviewer?'ok':'bad');
+  }
+  renderLb();updateTagSum();showTab('B');  // 기본 탭 = 결과 보기
+})();
+</script>
