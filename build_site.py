@@ -118,13 +118,13 @@ SYNCPUSH_RE = re.compile(
     re.S,
 )
 NEW_SYNCPUSH = (
-    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var p=noteParts(id),s=sampById[String(id)];\n"
-    "    var rec={reviewer:reviewer,sample_id:String(id),"
-    "tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
-    # 샘플 메타(grp/name/gt)는 이 보드에 있는 샘플일 때만 포함 — 다른 보드에서의
-    # 전체저장(syncAll)이 기존 행의 카테고리를 ''로 덮어써 진행률에서 빠지는 것 방지.
-    # grp는 grp_key(추가 검수 카드) 우선 — 기존 카테고리명과 겹쳐 집계가 섞이는 것 방지.
-    "    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}\n"
+    # vrec: Supabase upsert 레코드 조립(syncPush/pushList/autoFlush 공통). 샘플 메타(grp/name/gt)는
+    # 이 보드에 있는 샘플일 때만 포함 — 다른 보드 전체저장이 기존 행 카테고리를 ''로 덮어써
+    # 진행률에서 빠지는 것 방지. grp는 grp_key(추가 검수 카드) 우선(기존 카테고리명과 집계 분리).
+    "function vrec(id){var p=noteParts(id),s=sampById[String(id)];\n"
+    "    var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
+    "    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}return rec;}\n"
+    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id);\n"
     "    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',"
     "headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',"
     "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
@@ -135,13 +135,12 @@ NEW_SYNCPUSH = (
     "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}\n"
     # syncPull: 로드 시 서버(reviews)에서 본인 리뷰를 받아 로컬이 빈 샘플만 복원.
     # 로컬 입력이 항상 우선(덮어쓰기 없음) — 브라우저 교체/초기화 시 자동 복구용.
-    "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[];\n"
-    "    function page(off){fetch(SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates"
-    "&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit=1000&offset='+off,"
-    "{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}})\n"
-    "      .then(function(r){return r.ok?r.json():[];})\n"
-    "      .then(function(rows){acc=acc.concat(rows);if(rows.length===1000){page(off+1000);}else{apply(acc);}})\n"
-    "      .catch(function(){setUnsyncErr();});}\n"
+    "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,PAR=8;\n"
+    "    var base=SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit='+PAGE+'&offset=';\n"
+    "    function gp(off){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){return r.ok?r.json():[];});}\n"
+    # 페이지를 PAR개씩 병렬 요청(wave) — 순차 왕복 제거. 모든 페이지가 꽉 찼으면 다음 wave.
+    "    function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));\n"
+    "      return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}\n"
     # 필드 단위 병합: 로컬 값이 있는 필드는 유지, 빈 필드(판정/URL/GT후보/메모)만 서버 값으로 보충.
     # 로컬이 완전히 빈 샘플은 자연히 전체가 서버 값으로 채워진다(구버전 동작 포함).
     # 동시에 각 샘플의 서버 시그니처(SERVERSIG)를 기록해 '로컬만 있고 서버엔 없는' 미동기화분을 판별.
@@ -158,7 +157,7 @@ NEW_SYNCPUSH = (
     "      if(t.trim()!==''&&t!==noteGet(id)&&noteSet(id,t))n++;});\n"
     "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}\n"
     "      PULLED=true;renderUnsynced();}\n"
-    "    page(0);}\n"
+    "    wave(0).then(function(){apply(acc);}).catch(function(){setUnsyncErr();});}\n"
     # --- 미동기화 안전장치: 로컬(브라우저)에만 있고 서버에 반영 안 된 검수 감지 + 일괄 저장 ---
     "var SERVERSIG={},PULLED=false;\n"
     # 로컬/서버 시그니처를 동일 정규화(빈값 제거+정렬)로 비교 — 순서/빈태그/구분자 차이 오탐 제거.
@@ -188,14 +187,21 @@ NEW_SYNCPUSH = (
     "        setSyncStat('\\uc800\\uc7a5 \\uc644\\ub8cc '+ok+'\\uac74'+(failed.length?(' / \\uc2e4\\ud328 '+failed.length):''),failed.length?'bad':'ok');\n"
     "        if(failed.length){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328 \\uc0d8\\ud50c:',failed.map(function(x){var s=sampById[String(x)];return {id:x,name:s&&s.name};}));}\n"
     "        renderUnsynced();return;}\n"
-    "        var id=ids[i++],p=noteParts(id),s=sampById[String(id)];\n"
-    "        var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
-    "        if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}\n"
+    "        var id=ids[i++],rec=vrec(id),s=sampById[String(id)];\n"
     "        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
     "          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{failed.push(id);try{r.text().then(function(t){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})\n"
     "          .catch(function(){failed.push(id);})\n"
     "          .then(function(){setSyncStat('\\uc800\\uc7a5 '+i+'/'+ids.length,'ok');step();});}\n"
     "      step();}\n"
+    # --- 자동 전체저장: 주기(25s) + 창 숨김/이탈 시 미저장분 자동 반영(유실 방지 강화) ---
+    "function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;\n"
+    "  if(urgent){ids.forEach(function(id){var rec=vrec(id);\n"
+    # keepalive: 페이지 이탈 중에도 요청 완주(sendBeacon은 커스텀 헤더 불가라 fetch keepalive 사용).
+    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=locSig(id);}).catch(function(){});}catch(e){}});}\n"
+    "  else{pushList(ids,0);}}\n"
+    "setInterval(function(){autoFlush(false);},25000);\n"
+    "document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});\n"
+    "window.addEventListener('pagehide',function(){autoFlush(true);});\n"
     "setTimeout(syncPull,0);"  # 스크립트 초기화(reviewer/sampById/렌더) 완료 후 실행
 )
 SYNCVAR_OLD = "var SYNC=D.sync_url||'', reviewer='';"
@@ -315,10 +321,9 @@ RVS.forEach(function(r){
 // done[reviewerSlug][catSlug] = Set(sample_id)
 var DONE={};
 function bucket(rows){
+  // 완료행(gt_candidates 비어있지 않음)만 서버에서 필터되어 옴 — 여기선 grp만 매핑.
   var d={};
   rows.forEach(function(x){
-    // 완료 기준: GT후보 선정됨('__none__'=없음 확정 포함). 메모/판정만 있는 행은 미완료.
-    if(!String(x.gt_candidates||'').trim())return;
     var slug=NORM2SLUG[norm(x.grp)];if(!slug)return;
     // reviewer name -> slug
     var rv=RVS.filter(function(r){return r.name===x.reviewer;})[0];if(!rv)return;
@@ -378,18 +383,16 @@ function renderTeam(){
 }
 
 render();  // 먼저 0%로 그림
-// 라이브 진행률 fetch — PostgREST 기본 상한(1000행) 대응 페이지네이션
+// 라이브 진행률 fetch — 완료행(gt_candidates 비어있지 않음)만 서버 필터 + 페이지 병렬 요청(wave).
+// 기존: 전체행 1000단위 순차 왕복(느림). 개선: 완료행만(행수↓) + PAR개씩 동시 요청.
 (function loadProgress(){
-  var acc=[];
-  function page(off){
-    fetch(SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp,gt_candidates&order=row_id.asc&limit=1000&offset='+off,
-      {headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}})
-      .then(function(r){return r.ok?r.json():[];})
-      .then(function(rows){acc=acc.concat(rows);
-        if(rows.length===1000){page(off+1000);}else{DONE=bucket(acc);render();}})
-      .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
-  }
-  page(0);
+  var acc=[], PAGE=1000, PAR=8;
+  var base=SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp&gt_candidates=neq.&order=row_id.asc&limit='+PAGE+'&offset=';
+  function gp(off){return fetch(base+off,{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}}).then(function(r){return r.ok?r.json():[];});}
+  function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));
+    return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}
+  wave(0).then(function(){DONE=bucket(acc);render();})
+    .catch(function(){document.getElementById('foot').textContent='⚠ 진행률 불러오기 실패(오프라인?) — 메뉴는 그대로 사용 가능.';});
 })();
 </script></body></html>
 """
