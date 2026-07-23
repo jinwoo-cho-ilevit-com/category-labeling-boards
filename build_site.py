@@ -58,6 +58,24 @@ _baseline_path = os.path.join(OUT_DIR, "baseline_samples.json")
 if os.path.exists(_baseline_path):
     BASELINE = {k: set(v) for k, v in json.load(open(_baseline_path, encoding="utf-8")).items()}
 
+# --- 재분배: 이지나 하차분을 나머지 3인에게 파트너 제약 균형 배분 --------------
+# 이 데이터는 2인 중복검수 설계(아이템당 정확히 2명 배정, 동일 id=동일 상품).
+# 이지나 하차 카테고리를 나머지 3인에게 재배분하되, 각 아이템을 '아직 그 아이템을
+# 안 가진' 2명 중 부하 최소자에게 배정한다 — 기존 파트너(동일 아이템 보유자)를 피해
+# id 충돌 없이 2인 중복검수를 유지한다. 정렬 id 기준이라 재빌드마다 결정론적.
+#   FULL: 이지나 전량 이관(잔여 0).  HALF: 이지나가 절반 유지(정렬 id 짝수 index)·나머지 이관.
+REDIST_FROM = "이지나"
+REDIST_TO = ["김민지", "유다연", "조승현"]
+REDIST_FULL_LABELS = [
+    "4.1.2 (가공식품)", "4.1.3 (펫)",
+    "2.1.1 (출산/유아동) 신규", "2.1.1.2 (출산/유아동) 신규",
+]
+REDIST_HALF_LABELS = ["2.1.3 (신선)"]
+REDIST_FULL_NORM = {norm(x) for x in REDIST_FULL_LABELS}
+REDIST_HALF_NORM = {norm(x) for x in REDIST_HALF_LABELS}
+REDIST_NORM = REDIST_FULL_NORM | REDIST_HALF_NORM
+
+
 def section_label(sample, reviewer):
     """샘플이 들어갈 board 섹션 라벨. 제외 대상은 None."""
     g = str(sample.get("group", "") or "")
@@ -238,6 +256,7 @@ function render(){
   mine.innerHTML='';
   CATS.forEach(function(c,i){
     var tot=rv.totals[c.slug]||0, done=cnt(curSlug,c.slug);
+    if(!tot)return;  // 미배정 카테고리(재분배 하차분 등)는 본인 메뉴에서 숨김
     var pctv=tot?Math.round(done/tot*100):0, full=(tot>0&&done>=tot);
     var isNow=(c.slug===firstIncomplete);
     var a=document.createElement('a');
@@ -284,6 +303,51 @@ render();  // 먼저 0%로 그림
 """
 
 
+def plan_redistribution(files):
+    """이지나 하차분을 나머지 3인에게 파트너 제약 균형 배분(pre-pass).
+
+    반환: (extra, give_ids)
+      - extra[target]  : 대상 보드에 주입할 이지나 sample dict 리스트
+      - give_ids       : 이지나 보드에서 제거(이관)할 sample id 집합
+    """
+    holders = collections.defaultdict(lambda: collections.defaultdict(set))  # catnorm->reviewer->{id}
+    ezn = collections.defaultdict(dict)  # catnorm -> {id: sample}
+    for f in files:
+        D = json.loads(DATA_RE.search(open(f, encoding="utf-8").read()).group(2))
+        rev = D.get("reviewer_default") or os.path.basename(f)[6:-5]
+        for s in D.get("samples", []):
+            sec = section_label(s, rev)
+            if sec is None:
+                continue
+            k = norm(sec)
+            if k in REDIST_NORM:
+                sid = str(s.get("id"))
+                holders[k][rev].add(sid)
+                if rev == REDIST_FROM:
+                    ezn[k][sid] = s  # 원본 group 유지 — 대상 보드에서 재분류(신규 판별)
+        del D
+    extra = {t: [] for t in REDIST_TO}
+    give_ids = set()
+    for k in REDIST_NORM:
+        ids = sorted(ezn[k].keys())
+        if k in REDIST_HALF_NORM:
+            give = [sid for i, sid in enumerate(ids) if i % 2 == 1]  # 절반 이관(이지나 ceil 유지)
+        else:
+            give = ids  # 전량 이관
+        load = collections.Counter()
+        for sid in give:
+            cand = [t for t in REDIST_TO if sid not in holders[k][t]]  # 아직 안 가진 2명
+            cand.sort(key=lambda t: (load[t], REDIST_TO.index(t)))    # 부하 최소 -> 고정순서
+            pick = cand[0]
+            load[pick] += 1
+            extra[pick].append(ezn[k][sid])
+            give_ids.add(sid)
+    n = sum(len(v) for v in extra.values())
+    print(f"[재분배] 이지나 {len(give_ids)}건 이관 -> " +
+          ", ".join(f"{t}+{len(extra[t])}" for t in REDIST_TO) + f" (총 {n})")
+    return extra, give_ids
+
+
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     # 구 슬러그(c7 등) 잔존 방지: 카테고리 데이터는 매 빌드마다 새로 생성.
@@ -299,6 +363,10 @@ def main():
         return m.group(1) if m else os.path.basename(p)[6:-5]
     _rev = {p: _rev_of(p) for p in files}
     files.sort(key=lambda p: (REVIEWER_ORDER.index(_rev[p]) if _rev[p] in REVIEWER_ORDER else 999, p))
+
+    # 재분배 계산(pre-pass): 이지나 하차분을 나머지 3인 보드로 이관.
+    extra, give_ids = plan_redistribution(files)
+
     for ri, f in enumerate(files):
         raw = open(f, encoding="utf-8").read()
         m = DATA_RE.search(raw)
@@ -307,9 +375,16 @@ def main():
         rslug = f"r{ri+1}"
         template = raw  # 데이터는 카테고리별로 갈아끼움
 
+        # 재분배 적용: 대상 보드엔 이지나 이관분 주입, 이지나 보드에선 이관분 제거.
+        samples = list(D.get("samples", []))
+        if reviewer in REDIST_TO:
+            samples += extra.get(reviewer, [])
+
         # 섹션별 샘플 분할 (제외 스킵 + 기존카테고리 신규분은 '… 신규' 섹션으로)
         by_cat = collections.defaultdict(list)
-        for s in D.get("samples", []):
+        for s in samples:
+            if reviewer == REDIST_FROM and str(s.get("id")) in give_ids:
+                continue  # 이관된 샘플은 이지나 보드에서 제외
             sec = section_label(s, reviewer)
             if sec is None:
                 continue
