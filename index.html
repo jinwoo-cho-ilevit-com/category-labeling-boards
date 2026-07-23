@@ -43,7 +43,7 @@ table.team tfoot td{border-top:2px solid var(--line);font-weight:700;color:var(-
 <div class="foot" id="foot"></div>
 </div>
 <script>
-var M={"supabase": {"url": "https://qnhwcwsizommxuqfpalo.supabase.co", "key": "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"}, "categories": [{"slug": "c1", "label": "2.1.1", "norm": "2.1.1"}, {"slug": "c2", "label": "2.1.1 (출산/유아동)", "norm": "2.1.1(출산/유아동)"}, {"slug": "c3", "label": "2.1.1.2 (출산/유아동)", "norm": "2.1.1.2(출산/유아동)"}, {"slug": "c4", "label": "2.1.2 (출산/유아동)", "norm": "2.1.2(출산/유아동)"}, {"slug": "c5", "label": "2.2.1 (뷰티)", "norm": "2.2.1(뷰티)"}, {"slug": "c6", "label": "2.2.1 (영양제)", "norm": "2.2.1(영양제)"}, {"slug": "c7", "label": "2.1.3 (신선)", "norm": "2.1.3(신선)"}, {"slug": "c8", "label": "4.1.2 (가공식품)", "norm": "4.1.2(가공식품)"}, {"slug": "c9", "label": "4.1.3 (펫)", "norm": "4.1.3(펫)"}, {"slug": "c10", "label": "2.1.1 (출산/유아동) 신규", "norm": "2.1.1(출산/유아동)신규"}, {"slug": "c11", "label": "2.1.1.2 (출산/유아동) 신규", "norm": "2.1.1.2(출산/유아동)신규"}], "reviewers": [{"name": "김민지", "slug": "r1", "totals": {"c1": 151, "c2": 72, "c3": 70, "c4": 158, "c5": 145, "c6": 115, "c7": 177, "c8": 191, "c9": 204, "c10": 94, "c11": 97}}, {"name": "유다연", "slug": "r2", "totals": {"c1": 147, "c2": 68, "c3": 67, "c4": 147, "c5": 152, "c6": 114, "c7": 166, "c8": 203, "c9": 209, "c10": 100, "c11": 105}}, {"name": "이지나", "slug": "r3", "totals": {"c1": 149, "c2": 80, "c3": 84, "c4": 143, "c5": 149, "c6": 120, "c7": 72, "c8": 0, "c9": 0, "c10": 0, "c11": 0}}, {"name": "조승현", "slug": "r4", "totals": {"c1": 153, "c2": 70, "c3": 67, "c4": 146, "c5": 146, "c6": 105, "c7": 179, "c8": 186, "c9": 181, "c10": 96, "c11": 86}}]};
+var M={"supabase": {"url": "https://qnhwcwsizommxuqfpalo.supabase.co", "key": "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"}, "categories": [{"slug": "c1", "label": "2.1.1", "norm": "2.1.1"}, {"slug": "c2", "label": "2.1.1 (출산/유아동)", "norm": "2.1.1(출산/유아동)"}, {"slug": "c3", "label": "2.1.1.2 (출산/유아동)", "norm": "2.1.1.2(출산/유아동)"}, {"slug": "c4", "label": "2.1.2 (출산/유아동)", "norm": "2.1.2(출산/유아동)"}, {"slug": "c5", "label": "2.2.1 (뷰티)", "norm": "2.2.1(뷰티)"}, {"slug": "c6", "label": "2.2.1 (영양제)", "norm": "2.2.1(영양제)"}, {"slug": "c7", "label": "2.1.3 (신선)", "norm": "2.1.3(신선)"}, {"slug": "c8", "label": "4.1.2 (가공식품)", "norm": "4.1.2(가공식품)"}, {"slug": "c9", "label": "4.1.3 (펫)", "norm": "4.1.3(펫)"}, {"slug": "c10", "label": "2.1.1 (출산/유아동) 신규", "norm": "2.1.1(출산/유아동)신규"}, {"slug": "c11", "label": "2.1.1.2 (출산/유아동) 신규", "norm": "2.1.1.2(출산/유아동)신규"}], "reviewers": [{"name": "김민지", "slug": "r1", "totals": {"c1": 151, "c2": 72, "c3": 70, "c4": 158, "c5": 145, "c6": 115, "c7": 177, "c8": 191, "c9": 204, "c10": 94, "c11": 97}}, {"name": "유다연", "slug": "r2", "totals": {"c1": 147, "c2": 68, "c3": 67, "c4": 147, "c5": 152, "c6": 114, "c7": 166, "c8": 203, "c9": 209, "c10": 100, "c11": 105}}, {"name": "이지나", "slug": "r3", "totals": {"c1": 149, "c2": 80, "c3": 84, "c4": 143, "c5": 149, "c6": 120, "c7": 72, "c8": 0, "c9": 0, "c10": 0, "c11": 0}}, {"name": "조승현", "slug": "r4", "totals": {"c1": 153, "c2": 70, "c3": 67, "c4": 146, "c5": 146, "c6": 105, "c7": 179, "c8": 186, "c9": 181, "c10": 96, "c11": 86}}], "verify": {"r1": 1244, "r2": 1244, "r3": 1243, "r4": 1243}};
 var SB=M.supabase, CATS=M.categories, RVS=M.reviewers;
 function norm(s){return String(s||'').replace(/\s+/g,'');}
 var NORM2SLUG={};CATS.forEach(function(c){NORM2SLUG[c.norm]=c.slug;});
@@ -101,6 +101,18 @@ function renderMine(){
       '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
     mine.appendChild(a);
   });
+  // GT 재라벨 검증 카드(LLM이 GT 바꾼 샘플). 카운트는 data/verify/counts.json에서.
+  var vc=(M.verify||{})[curSlug];
+  if(vc){
+    var va=document.createElement('a');
+    va.className='card now';
+    va.href='data/verify/'+curSlug+'.html';
+    va.innerHTML='<div class="ord">🆕</div>'+
+      '<div class="cmid"><div class="clabel">GT 재라벨 검증 <span class="nowtag">LLM 변경분</span></div>'+
+      '<div class="hint">LLM이 GT를 바꾼 샘플을 top-10 후보에서 확인·수정</div></div>'+
+      '<div class="cnum"><b>'+vc+'</b>건</div>';
+    mine.appendChild(va);
+  }
 }
 function renderTeam(){
   var tw=document.getElementById('teamwrap');tw.hidden=false;

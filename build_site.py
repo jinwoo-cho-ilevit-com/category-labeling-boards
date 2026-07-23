@@ -335,6 +335,18 @@ function renderMine(){
       '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
     mine.appendChild(a);
   });
+  // GT 재라벨 검증 카드(LLM이 GT 바꾼 샘플). 카운트는 data/verify/counts.json에서.
+  var vc=(M.verify||{})[curSlug];
+  if(vc){
+    var va=document.createElement('a');
+    va.className='card now';
+    va.href='data/verify/'+curSlug+'.html';
+    va.innerHTML='<div class="ord">🆕</div>'+
+      '<div class="cmid"><div class="clabel">GT 재라벨 검증 <span class="nowtag">LLM 변경분</span></div>'+
+      '<div class="hint">LLM이 GT를 바꾼 샘플을 top-10 후보에서 확인·수정</div></div>'+
+      '<div class="cnum"><b>'+vc+'</b>건</div>';
+    mine.appendChild(va);
+  }
 }
 function renderTeam(){
   var tw=document.getElementById('teamwrap');tw.hidden=false;
@@ -522,6 +534,9 @@ def main():
         "reviewers": [{"name": r["name"], "slug": r["slug"],
                        "totals": {CAT_SLUG[k]: r["totals"].get(k, 0) for k in NORM_ORDER}} for r in reviewers],
     }
+    # GT 재라벨 검증 보드(data/verify/) 카운트 주입 — 메인 검수자 카드에 통합 노출.
+    _vc = os.path.join(OUT_DIR, "data", "verify", "counts.json")
+    manifest["verify"] = json.load(open(_vc, encoding="utf-8")) if os.path.exists(_vc) else {}
     open(os.path.join(OUT_DIR, "manifest.json"), "w", encoding="utf-8").write(
         json.dumps(manifest, ensure_ascii=False, indent=2))
     idx = INDEX_TEMPLATE.replace("__MANIFEST__", json.dumps(manifest, ensure_ascii=False))
