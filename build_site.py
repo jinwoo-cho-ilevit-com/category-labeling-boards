@@ -444,11 +444,19 @@ def plan_redistribution(files):
 
 
 def load_verify_sources():
-    """board_source/verify_<검수자>.jsonl -> {reviewer: [sample,...]} (파일 순서 유지)."""
+    """board_source/verify_<검수자>.jsonl -> {reviewer: [sample,...]} (파일 순서 유지).
+    id/group(phase) 누락은 빌드 중단 — group 없으면 'None' 팬텀 phase가 생기고,
+    id 없으면 진행률/복원 매칭이 깨지므로 fail-loud."""
     out = {}
     for f in sorted(glob.glob(os.path.join(SRC_DIR, "verify_*.jsonl"))):
         rev = os.path.basename(f)[len("verify_"):-len(".jsonl")]
-        out[rev] = [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+        samples = [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+        for s in samples:
+            if not str(s.get("id") or "").strip():
+                raise RuntimeError(f"verify 소스 {rev}: id 없는 샘플 존재")
+            if not str(s.get("group") or "").strip():
+                raise RuntimeError(f"verify 소스 {rev}: group(phase) 없는 샘플 id={s.get('id')}")
+        out[rev] = samples
     return out
 
 
@@ -615,6 +623,15 @@ def main():
             html_out = DATA_RE.sub(lambda mm: mm.group(1) + data_json + mm.group(3), template, count=1)
             html_out = patch_html(html_out, vc["label"], f"추가 {pi+1}/{len(v_present)}", prev_slug, next_slug)
             open(os.path.join(rdir, vc["slug"] + ".html"), "w", encoding="utf-8").write(html_out)
+
+        # 데이터 무결성: 같은 (검수자, sample_id)가 기존 카드와 추가 검수 카드에 동시에 있으면
+        # Supabase 단일 행(on_conflict=reviewer,sample_id)을 두 보드가 다투게 됨(집계 충돌) → 빌드 중단.
+        board_ids = {str(s.get("id")) for subs in by_cat.values() for s in subs}
+        v_ids = {str(s.get("id")) for subs in verify_per_rev.get(reviewer, {}).values() for s in subs}
+        clash = board_ids & v_ids
+        if clash:
+            raise RuntimeError(f"{reviewer}: 기존 보드와 추가 검수에 동시 존재하는 sample_id "
+                               f"{len(clash)}건(집계 행 충돌) — 예: {sorted(clash)[:3]}")
 
         reviewers.append({"name": reviewer, "slug": rslug, "totals": totals, "vtotals": v_totals})
         print(f"[{reviewer}] {rslug}: " + ", ".join(f"{CAT_SLUG[k]}={totals[k]}" for k in NORM_ORDER)
