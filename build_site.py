@@ -422,8 +422,11 @@ def plan_redistribution(files):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     # 구 슬러그(c7 등) 잔존 방지: 카테고리 데이터는 매 빌드마다 새로 생성.
-    # .git / onboarding.html / README.md / build_site.py 등 루트 자산은 건드리지 않음.
-    shutil.rmtree(os.path.join(OUT_DIR, "data"), ignore_errors=True)
+    # 단 data/verify/(GT 재라벨 검증 보드)는 별도 산출물이라 보존.
+    for d in glob.glob(os.path.join(OUT_DIR, "data", "*")):
+        if os.path.basename(d) == "verify":
+            continue
+        shutil.rmtree(d, ignore_errors=True) if os.path.isdir(d) else os.remove(d)
     reviewers = []  # {name, slug, totals:{catnorm:count}}
     files = glob.glob(os.path.join(SRC_DIR, "board_*.html"))
     if not files:
