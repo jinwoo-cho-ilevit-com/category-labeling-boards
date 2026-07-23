@@ -271,6 +271,7 @@ table.team tfoot td{border-top:2px solid var(--line);font-weight:700;color:var(-
 <h1>레이블링 검수 보드</h1>
 <div class="sub">카테고리를 순서대로 검수하세요. 저장은 자동으로 DB에 반영됩니다. 진행률은 GT후보 선정(없음 확정 포함) 완료 기준.</div>
 <a class="guide" href="onboarding.html" target="_blank" rel="noopener">📖 GT 복수정답 검수 온보딩 가이드</a>
+<a class="guide" href="data/verify/index.html" style="border-color:var(--accent);color:var(--accent);font-weight:700">🆕 GT 재라벨 검증 보드 (LLM 변경분 2,487건) →</a>
 <div class="who" id="who"><span class="lbl">검수자</span></div>
 <div id="mine"><div class="empty">위에서 본인 이름을 선택하세요.</div></div>
 <div id="teamwrap" hidden><h2>카테고리별 진행률</h2><div id="team"></div></div>
