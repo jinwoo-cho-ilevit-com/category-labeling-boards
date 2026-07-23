@@ -9,10 +9,16 @@
 import json, re, glob, os, collections, html as _html, shutil
 
 SRC_DIR = "/Users/jwcho/Downloads/temp-2"
-OUT_DIR = "/Users/jwcho/Codes/category-labeling-boards"
+OUT_DIR = os.path.dirname(os.path.abspath(__file__))  # build_site.py가 있는 저장소(하드코딩 경로 제거)
 
 SUPABASE_URL = "https://qnhwcwsizommxuqfpalo.supabase.co"
 SUPABASE_KEY = "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"
+
+# 이미지: base64 임베드 대신 공개 S3 URL 참조로 대체 — 레포 ~870MB→~50MB, 외부 폴더
+# (llm-api-research/data/images) 의존 제거. candidate id -> s3Key 맵은 image_urls.json에 커밋.
+S3_BASE = "https://alwayz-assets.s3.amazonaws.com/"
+_img_map_path = os.path.join(OUT_DIR, "image_urls.json")
+IMG_MAP = json.load(open(_img_map_path, encoding="utf-8")) if os.path.exists(_img_map_path) else {}
 
 # 진행 순서(소프트). 표시 라벨은 데이터 원본 형식. 매칭 키는 공백 제거 정규화.
 # 순서: 기존 운영 6개 -> 신규 카테고리 3개 -> 기존 카테고리 추가분('… 신규') 2개(맨 아래).
@@ -453,6 +459,10 @@ def main():
             if sec is None:
                 continue
             s["group"] = sec  # syncPush가 s.group을 grp로 저장 -> 진행률 섹션 정합
+            sid = str(s.get("id"))
+            if sid in IMG_MAP:
+                # base64 -> 공개 S3 URL (뷰어는 _img_data 값을 <img src>에 그대로 사용)
+                s["_img_data"] = S3_BASE + IMG_MAP[sid]
             k = norm(sec)
             if k in CAT_SLUG:
                 by_cat[k].append(s)
