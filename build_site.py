@@ -8,11 +8,18 @@
 """
 import json, re, glob, os, collections, html as _html, shutil
 
-SRC_DIR = "/Users/jwcho/Downloads/temp-2"
-OUT_DIR = "/Users/jwcho/Codes/category-labeling-boards"
+OUT_DIR = os.path.dirname(os.path.abspath(__file__))  # build_site.py가 있는 저장소(하드코딩 경로 제거)
+# 슬림 빌드 소스(base64 제거, ~11MB×4)를 저장소에 커밋 — 외부 휘발성 Downloads/temp-2 의존 제거.
+SRC_DIR = os.path.join(OUT_DIR, "board_source")
 
 SUPABASE_URL = "https://qnhwcwsizommxuqfpalo.supabase.co"
 SUPABASE_KEY = "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"
+
+# 이미지: base64 임베드 대신 공개 S3 URL 참조로 대체 — 레포 ~870MB→~50MB, 외부 폴더
+# (llm-api-research/data/images) 의존 제거. candidate id -> s3Key 맵은 image_urls.json에 커밋.
+S3_BASE = "https://alwayz-assets.s3.amazonaws.com/"
+_img_map_path = os.path.join(OUT_DIR, "image_urls.json")
+IMG_MAP = json.load(open(_img_map_path, encoding="utf-8")) if os.path.exists(_img_map_path) else {}
 
 # 진행 순서(소프트). 표시 라벨은 데이터 원본 형식. 매칭 키는 공백 제거 정규화.
 # 순서: 기존 운영 6개 -> 신규 카테고리 3개 -> 기존 카테고리 추가분('… 신규') 2개(맨 아래).
@@ -377,7 +384,10 @@ def plan_redistribution(files):
     holders = collections.defaultdict(lambda: collections.defaultdict(set))  # catnorm->reviewer->{id}
     ezn = collections.defaultdict(dict)  # catnorm -> {id: sample}
     for f in files:
-        D = json.loads(DATA_RE.search(open(f, encoding="utf-8").read()).group(2))
+        m = DATA_RE.search(open(f, encoding="utf-8").read())
+        if not m:
+            raise RuntimeError(f"data 스크립트 앵커를 못 찾음: {f}")
+        D = json.loads(m.group(2))
         rev = D.get("reviewer_default") or os.path.basename(f)[6:-5]
         for s in D.get("samples", []):
             sec = section_label(s, rev)
@@ -415,8 +425,14 @@ def plan_redistribution(files):
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     # 구 슬러그(c7 등) 잔존 방지: 카테고리 데이터는 매 빌드마다 새로 생성.
-    # .git / onboarding.html / README.md / build_site.py 등 루트 자산은 건드리지 않음.
-    shutil.rmtree(os.path.join(OUT_DIR, "data"), ignore_errors=True)
+    # 단 data/verify/(GT 재라벨 검증 보드)는 별도 산출물이라 보존.
+    for d in glob.glob(os.path.join(OUT_DIR, "data", "*")):
+        if os.path.basename(d) == "verify":
+            continue
+        if os.path.islink(d) or os.path.isfile(d):
+            os.remove(d)
+        elif os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
     reviewers = []  # {name, slug, totals:{catnorm:count}}
     files = glob.glob(os.path.join(SRC_DIR, "board_*.html"))
     if not files:
@@ -430,10 +446,13 @@ def main():
 
     # 재분배 계산(pre-pass): 이지나 하차분을 나머지 3인 보드로 이관.
     extra, give_ids = plan_redistribution(files)
+    missing_img = 0  # IMG_MAP에 없어 이미지 URL이 안 붙은 렌더 샘플 수(경고용)
 
     for ri, f in enumerate(files):
         raw = open(f, encoding="utf-8").read()
         m = DATA_RE.search(raw)
+        if not m:
+            raise RuntimeError(f"data 스크립트 앵커를 못 찾음: {f}")
         D = json.loads(m.group(2))
         reviewer = D.get("reviewer_default") or os.path.basename(f)[6:-5]
         rslug = f"r{ri+1}"
@@ -453,8 +472,14 @@ def main():
             if sec is None:
                 continue
             s["group"] = sec  # syncPush가 s.group을 grp로 저장 -> 진행률 섹션 정합
+            sid = str(s.get("id"))
+            if sid in IMG_MAP:
+                # base64 -> 공개 S3 URL (뷰어는 _img_data 값을 <img src>에 그대로 사용)
+                s["_img_data"] = S3_BASE + IMG_MAP[sid]
             k = norm(sec)
             if k in CAT_SLUG:
+                if sid not in IMG_MAP:
+                    missing_img += 1  # 슬림 소스엔 base64 없음 -> URL 미주입 시 이미지 깨짐
                 by_cat[k].append(s)
 
         rdir = os.path.join(OUT_DIR, "data", rslug)
@@ -485,6 +510,10 @@ def main():
             open(outp, "w", encoding="utf-8").write(html_out)
         reviewers.append({"name": reviewer, "slug": rslug, "totals": totals})
         print(f"[{reviewer}] {rslug}: " + ", ".join(f"{CAT_SLUG[k]}={totals[k]}" for k in NORM_ORDER))
+
+    if missing_img:
+        print(f"⚠ 경고: 이미지 URL 미주입 {missing_img}건 — image_urls.json 커버리지 확인 필요"
+              f"(슬림 소스엔 base64 없음 → 해당 샘플 이미지 깨짐)")
 
     # manifest + index
     manifest = {
