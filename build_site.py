@@ -124,17 +124,22 @@ NEW_SYNCPUSH = (
     "function vrec(id){var p=noteParts(id),s=sampById[String(id)];\n"
     "    var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
     "    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}return rec;}\n"
-    # sig는 '전송 시점' 로컬 시그니처를 캡처 — 응답 시점 locSig(id)로 찍으면 왕복 중 편집분이
-    # 서버 반영 없이 '저장됨'으로 오판돼 유실될 수 있음(재push 안 됨). 전송값 기준으로 기록.
-    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id),sig=locSig(id);\n"
-    "    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',"
-    "headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',"
-    "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
-    # 저장 성공 시 서버 시그니처 갱신 -> 미동기화 배지가 즉시 '모두 저장됨'으로.
-    "      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();"
-    "SERVERSIG[String(id)]=sig;renderUnsynced();}"
-    "else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})\n"
-    "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}\n"
+    # safeUrl: http(s) 스킴만 허용 — 검수자/스냅샷 URL의 javascript: 스킴 저장형 XSS 차단.
+    "function safeUrl(u){u=String(u||'').trim();return /^https?:\\/\\//i.test(u)?u:'';}\n"
+    # id별 직렬화 writer: 동일 (reviewer,sample_id)에 in-flight 1건만 유지(INFLIGHT) → 동시 upsert
+    # 불가 → 서버 커밋 순서 역전으로 인한 stale 덮어쓰기/거짓green 원천 차단. 응답 시 '전송 후
+    # 미편집'(locSig===sig)일 때만 SERVERSIG 기록, 편집됐거나 대기(PENDING) 있으면 최신값 재전송.
+    "function _postRec(rec){return fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)});}\n"
+    "var INFLIGHT={},PENDING={};\n"
+    "function pushOne(id,cb){id=String(id);if(!SB_URL||!SB_KEY||!reviewer){if(cb)cb(false);return;}\n"
+    "    if(INFLIGHT[id]){PENDING[id]=true;if(cb)cb(null);return;}\n"
+    "    INFLIGHT[id]=true;var rec=vrec(id),sig=locSig(id);\n"
+    "    _postRec(rec).then(function(r){return r.ok;},function(){return false;})\n"
+    "      .then(function(ok){INFLIGHT[id]=false;\n"
+    "        if(ok&&locSig(id)===sig)SERVERSIG[id]=sig;\n"
+    "        var again=PENDING[id]||(ok&&locSig(id)!==sig);PENDING[id]=false;\n"
+    "        if(again){pushOne(id,cb);}else{renderUnsynced();if(cb)cb(ok);}});}\n"
+    "function syncPush(id){pushOne(id,function(ok){if(ok===true){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();}else if(ok===false){setSyncStat('저장 실패(로컬 보관)','bad');}});}\n"
     # syncPull: 로드 시 서버(reviews)에서 본인 리뷰를 받아 로컬이 빈 샘플만 복원.
     # 로컬 입력이 항상 우선(덮어쓰기 없음) — 브라우저 교체/초기화 시 자동 복구용.
     "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,PAR=8;\n"
@@ -159,9 +164,11 @@ NEW_SYNCPUSH = (
     "      var body=loc.body.trim()!==''?loc.body:sbody;\n"
     "      var t=noteCombine(tags,url,picks,body);\n"
     "      if(t.trim()!==''&&t!==noteGet(id)&&noteSet(id,t))n++;});\n"
-    "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}\n"
+    "      if(n){dirty=false;try{renderCross();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}\n"
     "      PULLED=true;renderUnsynced();}\n"
-    "    wave(0).then(function(){apply(acc);}).catch(function(){setUnsyncErr();});}\n"
+    # pull 실패해도 PULLED=true로 전환 → 자동저장(autoFlush)·미저장 배지가 활성화되어 로컬분이
+    # 서버로 밀려 유실 방지(SERVERSIG 비어있어 로컬 보유분은 미저장으로 잡히고 재push됨, idempotent).
+    "    wave(0).then(function(){apply(acc);}).catch(function(){PULLED=true;renderUnsynced();});}\n"
     # --- 미동기화 안전장치: 로컬(브라우저)에만 있고 서버에 반영 안 된 검수 감지 + 일괄 저장 ---
     "var SERVERSIG={},PULLED=false,bulkBusy=false;\n"
     # 로컬/서버 시그니처를 동일 정규화(빈값 제거+정렬)로 비교 — 순서/빈태그/구분자 차이 오탐 제거.
@@ -171,7 +178,6 @@ NEW_SYNCPUSH = (
     "function locSig(id){var p=noteParts(id);return sigOf(rjoin(p.tags),p.url,rjoin(p.gtPicks),p.body);}\n"
     "function locEmpty(id){var p=noteParts(id);return !((p.tags&&p.tags.length)||(p.gtPicks&&p.gtPicks.length)||(p.url&&p.url.trim())||(p.body&&p.body.trim()));}\n"
     "function unsyncedIds(){var out=[];for(var id in sampById){if(locEmpty(id))continue;if(SERVERSIG[String(id)]!==locSig(id))out.push(id);}return out;}\n"
-    "function setUnsyncErr(){var el=document.getElementById('unsyncbar');if(!el)return;el.className='unsync';el.textContent='\\u26a0 \\ub3d9\\uae30\\ud654 \\uc0c1\\ud0dc \\ud655\\uc778 \\uc2e4\\ud328 \\u2014 \\uc0c8\\ub85c\\uace0\\uce68 \\uad8c\\uc7a5';}\n"
     "function renderUnsynced(){var el=document.getElementById('unsyncbar');if(!el)return;\n"
     "      if(!PULLED){el.className='unsync';el.textContent='\\ub3d9\\uae30\\ud654 \\ud655\\uc778 \\uc911\\u2026';return;}\n"
     "      var n=unsyncedIds().length;\n"
@@ -192,17 +198,15 @@ NEW_SYNCPUSH = (
     "        setSyncStat('\\uc800\\uc7a5 \\uc644\\ub8cc '+ok+'\\uac74'+(failed.length?(' / \\uc2e4\\ud328 '+failed.length):''),failed.length?'bad':'ok');\n"
     "        if(failed.length){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328 \\uc0d8\\ud50c:',failed.map(function(x){var s=sampById[String(x)];return {id:x,name:s&&s.name};}));}\n"
     "        bulkBusy=false;renderUnsynced();return;}\n"
-    "        var id=ids[i++],rec=vrec(id),sig=locSig(id),s=sampById[String(id)];\n"
-    "        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
-    "          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=sig;}else{failed.push(id);try{r.text().then(function(t){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})\n"
-    "          .catch(function(){failed.push(id);})\n"
-    "          .then(function(){setSyncStat('\\uc800\\uc7a5 '+i+'/'+ids.length,'ok');step();});}\n"
+    # 직렬 writer 경유: cb(true)=성공, cb(false)=실패, cb(null)=다른 전송과 합쳐짐(재전송 예정, 실패 아님).
+    "        var id=ids[i++];\n"
+    "        pushOne(id,function(res){if(res===true)ok++;else if(res===false)failed.push(id);setSyncStat('\\uc800\\uc7a5 '+i+'/'+ids.length,'ok');step();});}\n"
     "      step();}\n"
     # --- 자동 전체저장: 주기(25s) + 창 숨김/이탈 시 미저장분 자동 반영(유실 방지 강화) ---
     "function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;\n"
     "  if(urgent){ids.forEach(function(id){var rec=vrec(id),sig=locSig(id);\n"
     # keepalive: 페이지 이탈 중에도 요청 완주(sendBeacon은 커스텀 헤더 불가라 fetch keepalive 사용).
-    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}\n"
+    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok&&locSig(id)===sig)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}\n"
     "  else{pushList(ids,0);}}\n"
     "setInterval(function(){autoFlush(false);},25000);\n"
     "document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});\n"
@@ -242,7 +246,25 @@ def patch_html(raw_html: str, label: str, ord_text: str, prev_slug, next_slug) -
     h, n = SYNCPUSH_RE.subn(lambda m: NEW_SYNCPUSH, h, count=1)
     if n != 1:
         raise RuntimeError("syncPush 앵커를 못 찾음")
+    # 1b) 보안/정합 sink 교체 — 앵커 없으면 fail-loud(뷰어 템플릿 변화 조기 감지)
+    for _old, _new, _tag in [
+        # A1: URL은 http(s) 스킴만 허용 (javascript: 스킴 저장형/DOM XSS 차단)
+        ("function paintUrl(){if(!urlOpen)return;var u=(urlEl&&urlEl.value||'').trim();urlOpen.href=u;urlOpen.style.display=u?'':'none';}",
+         "function paintUrl(){if(!urlOpen)return;var u=(urlEl&&urlEl.value||'').trim();urlOpen.href=safeUrl(u)||'#';urlOpen.style.display=u?'':'none';}", "paintUrl"),
+        ("escAttr(rv.url)", "escAttr(safeUrl(rv.url))", "스냅샷 URL"),
+        # M1: 분할 보드는 reviewer_default를 authoritative로 (localStorage stale 이름 오귀속 방지)
+        ("if(!reviewer&&D.reviewer_default)reviewer=D.reviewer_default;",
+         "if(D.reviewer_default)reviewer=D.reviewer_default;", "reviewer_default"),
+        # M2: syncAll은 현재 카드에 있는 샘플만 push (타보드 샘플 grp NULL INSERT로 진행률 누락 방지)
+        ("var ids=allNoteIds().filter(function(id){return hasNote(id);});ids.forEach(syncPush);",
+         "var ids=allNoteIds().filter(function(id){return hasNote(id)&&sampById[String(id)];});ids.forEach(syncPush);", "syncAll"),
+    ]:
+        if _old not in h:
+            raise RuntimeError(f"{_tag} 앵커를 못 찾음")
+        h = h.replace(_old, _new, 1)
     # 2) CSS 주입 (첫 </style> 앞)
+    if "</style>" not in h:
+        raise RuntimeError("</style> 앵커를 못 찾음")
     h = h.replace("</style>", CATNAV_CSS + "</style>", 1)
     # 3) 네비바 주입 (chips div 뒤)
     parts = ['<a href="../../index.html">◀ 전체 목록</a>',
@@ -254,6 +276,8 @@ def patch_html(raw_html: str, label: str, ord_text: str, prev_slug, next_slug) -
         parts.append(f'<a href="{next_slug}.html">다음 ▶</a>')
     nav = '<div class="catnav">' + "".join(parts) + "</div>"
     anchor = '<div class="chips" id="chips"></div>'
+    if anchor not in h:
+        raise RuntimeError("chips div 앵커를 못 찾음")
     # 네비바 + 미동기화 배지(우하단 고정) 주입
     unsyncbar = '<div id="unsyncbar" class="unsync"></div>'
     h = h.replace(anchor, anchor + "\n    " + nav + "\n    " + unsyncbar, 1)
@@ -309,6 +333,7 @@ table.team tr.secrow td{background:var(--surface-2);color:var(--accent);font-wei
 var M=__MANIFEST__;
 var SB=M.supabase, CATS=M.categories, RVS=M.reviewers;
 function norm(s){return String(s||'').replace(/\s+/g,'');}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];});}
 var NORM2SLUG={};CATS.forEach(function(c){NORM2SLUG[c.norm]=c.slug;});
 var curSlug=null;
 try{curSlug=localStorage.getItem('labeling_rv')||null;}catch(e){}
@@ -349,7 +374,7 @@ function renderMine(){
   mine.innerHTML='';
   var vHead=false;  // '추가 검수' 섹션 헤더는 첫 검증 카드 앞에 1회만
   CATS.forEach(function(c,i){
-    var tot=rv.totals[c.slug]||0, done=cnt(curSlug,c.slug);
+    var tot=rv.totals[c.slug]||0, done=Math.min(cnt(curSlug,c.slug),tot);  // 상한 캡: stale 서버행으로 >100% 방지
     if(!tot)return;  // 미배정 카테고리(재분배 하차분·본인 미보유 청크 등)는 본인 메뉴에서 숨김
     if(c.verify&&!vHead){var hh=document.createElement('h2');hh.className='sec';
       hh.textContent=M.verify_section||'추가 검수';mine.appendChild(hh);vHead=true;}
@@ -359,7 +384,7 @@ function renderMine(){
     a.className='card'+(isNow?' now':'')+(full?' done':'');
     a.href='data/'+curSlug+'/'+c.slug+'.html';
     a.innerHTML='<div class="ord">'+(i+1)+'</div>'+
-      '<div class="cmid"><div class="clabel">'+c.label+(isNow?'<span class="nowtag">▶ 지금</span>':'')+'</div>'+
+      '<div class="cmid"><div class="clabel">'+esc(c.label)+(isNow?'<span class="nowtag">▶ 지금</span>':'')+'</div>'+
       '<div class="cbarwrap"><div class="cbar'+(full?' full':'')+'" style="width:'+pctv+'%"></div></div></div>'+
       '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
     mine.appendChild(a);
@@ -368,12 +393,12 @@ function renderMine(){
 function renderTeam(){
   var tw=document.getElementById('teamwrap');tw.hidden=false;
   var h='<table class="team"><thead><tr><th class="l">카테고리</th>';
-  RVS.forEach(function(r){h+='<th>'+r.name+'</th>';});h+='<th>합계</th></tr></thead><tbody>';
+  RVS.forEach(function(r){h+='<th>'+esc(r.name)+'</th>';});h+='<th>합계</th></tr></thead><tbody>';
   var vHead=false;  // '추가 검수' 구분 행은 첫 검증 카테고리 앞에 1회만
   CATS.forEach(function(c,i){
-    if(c.verify&&!vHead){h+='<tr class="secrow"><td class="l" colspan="'+(RVS.length+2)+'">'+(M.verify_section||'추가 검수')+'</td></tr>';vHead=true;}
-    h+='<tr><td class="l">'+(i+1)+'. '+c.label+'</td>';var sd=0,st=0;
-    RVS.forEach(function(r){var tot=r.totals[c.slug]||0,done=cnt(r.slug,c.slug);sd+=done;st+=tot;
+    if(c.verify&&!vHead){h+='<tr class="secrow"><td class="l" colspan="'+(RVS.length+2)+'">'+esc(M.verify_section||'추가 검수')+'</td></tr>';vHead=true;}
+    h+='<tr><td class="l">'+(i+1)+'. '+esc(c.label)+'</td>';var sd=0,st=0;
+    RVS.forEach(function(r){var tot=r.totals[c.slug]||0,done=Math.min(cnt(r.slug,c.slug),tot);sd+=done;st+=tot;
       h+='<td>'+(tot?done+'/'+tot:'–')+'</td>';});
     h+='<td><b>'+sd+'/'+st+'</b> ('+(st?Math.round(sd/st*100):0)+'%)</td></tr>';
   });
@@ -441,6 +466,8 @@ def plan_redistribution(files):
         load = collections.Counter()
         for sid in give:
             cand = [t for t in REDIST_TO if sid not in holders[k][t]]  # 아직 안 가진 2명
+            if not cand:  # 3인 전원 보유 = 2인 중복검수 불변식 위반 → 원인 명확히 알리고 중단
+                raise RuntimeError(f"재분배 불가 {k}/{sid}: 배정 가능한 비보유 검수자 없음(2인 중복검수 불변식 위반)")
             cand.sort(key=lambda t: (load[t], REDIST_TO.index(t)))    # 부하 최소 -> 고정순서
             pick = cand[0]
             load[pick] += 1
@@ -569,9 +596,17 @@ def main():
     # 재분배 계산(pre-pass): 이지나 하차분을 나머지 3인 보드로 이관.
     extra, give_ids = plan_redistribution(files)
     missing_img = 0  # IMG_MAP에 없어 이미지 URL이 안 붙은 렌더 샘플 수(경고용)
+    dropped = collections.Counter()  # TARGET_ORDER 밖 라벨로 분류돼 드롭된 샘플(무음 손실 감지용)
+    if not BASELINE:
+        print("⚠ 경고: baseline_samples.json 없음/비어있음 — 기존 카테고리 샘플이 '신규'로 분류돼 드롭될 수 있음")
 
     # 추가 검수 사전배치(pre-pass): 검증 샘플을 phase별 chunk 카드로 분할(전원 공통 카드 목록).
-    verify_cats, verify_per_rev = plan_verify(load_verify_sources())
+    _vsrc = load_verify_sources()
+    verify_cats, verify_per_rev = plan_verify(_vsrc)
+    # verify 소스 검수자명이 board에 없으면 그 검증 샘플은 어떤 카드에도 방출 안 됨 → fail-loud.
+    _orphan = sorted(set(_vsrc) - {_rev[p] for p in files})
+    if _orphan:
+        raise RuntimeError(f"verify 소스 검수자 {_orphan}가 board에 없음 — 검증 샘플 미방출(이름 불일치/board 누락)")
 
     for ri, f in enumerate(files):
         raw = open(f, encoding="utf-8").read()
@@ -606,6 +641,23 @@ def main():
                 if sid not in IMG_MAP:
                     missing_img += 1  # 슬림 소스엔 base64 없음 -> URL 미주입 시 이미지 깨짐
                 by_cat[k].append(s)
+            else:
+                dropped[sec] += 1  # TARGET_ORDER에 없는 라벨(예: baseline 누락발 '<기존> 신규') → 무음 드롭 감지
+
+        # 데이터 무결성(쓰기 前 검사): 같은 (검수자, sample_id)가 기존 카드와 추가 검수 카드에 동시에
+        # 있거나 한 검수자 내부에서 중복되면, Supabase 단일 행(on_conflict=reviewer,sample_id)을 두 카드가
+        # 다투거나(집계 충돌) 진행률이 100%에 못 미침 → 부분 산출물 남기지 않게 방출 前 fail-loud.
+        board_id_list = [str(s.get("id")) for subs in by_cat.values() for s in subs]
+        v_id_list = [str(s.get("id")) for subs in verify_per_rev.get(reviewer, {}).values() for s in subs]
+        board_ids, v_ids = set(board_id_list), set(v_id_list)
+        if len(board_id_list) != len(board_ids):
+            raise RuntimeError(f"{reviewer}: 기존 카드 내부 중복 sample_id {len(board_id_list)-len(board_ids)}건(진행률 100% 미달 유발)")
+        if len(v_id_list) != len(v_ids):
+            raise RuntimeError(f"{reviewer}: 추가 검수 내부 중복 sample_id {len(v_id_list)-len(v_ids)}건")
+        clash = board_ids & v_ids
+        if clash:
+            raise RuntimeError(f"{reviewer}: 기존 보드와 추가 검수에 동시 존재하는 sample_id "
+                               f"{len(clash)}건(집계 행 충돌) — 예: {sorted(clash)[:3]}")
 
         rdir = os.path.join(OUT_DIR, "data", rslug)
         os.makedirs(rdir, exist_ok=True)
@@ -659,15 +711,6 @@ def main():
             html_out = patch_html(html_out, vc["label"], f"추가 {pi+1}/{len(v_present)}", prev_slug, next_slug)
             open(os.path.join(rdir, vc["slug"] + ".html"), "w", encoding="utf-8").write(html_out)
 
-        # 데이터 무결성: 같은 (검수자, sample_id)가 기존 카드와 추가 검수 카드에 동시에 있으면
-        # Supabase 단일 행(on_conflict=reviewer,sample_id)을 두 보드가 다투게 됨(집계 충돌) → 빌드 중단.
-        board_ids = {str(s.get("id")) for subs in by_cat.values() for s in subs}
-        v_ids = {str(s.get("id")) for subs in verify_per_rev.get(reviewer, {}).values() for s in subs}
-        clash = board_ids & v_ids
-        if clash:
-            raise RuntimeError(f"{reviewer}: 기존 보드와 추가 검수에 동시 존재하는 sample_id "
-                               f"{len(clash)}건(집계 행 충돌) — 예: {sorted(clash)[:3]}")
-
         reviewers.append({"name": reviewer, "slug": rslug, "totals": totals, "vtotals": v_totals})
         print(f"[{reviewer}] {rslug}: " + ", ".join(f"{CAT_SLUG[k]}={totals[k]}" for k in NORM_ORDER)
               + f" | 추가검수 {sum(v_totals.values())}건({len(v_present)}카드)")
@@ -675,6 +718,9 @@ def main():
     if missing_img:
         print(f"⚠ 경고: 이미지 URL 미주입 {missing_img}건 — image_urls.json 커버리지 확인 필요"
               f"(슬림 소스엔 base64 없음 → 해당 샘플 이미지 깨짐)")
+    if dropped:
+        print(f"⚠ 경고: TARGET_ORDER 밖 라벨로 분류돼 드롭된 샘플 {sum(dropped.values())}건 — "
+              f"baseline 커버리지/신규 카드 정의 확인: {dict(dropped)}")
 
     # manifest + index — 기존 카테고리(verify:false) + 추가 검수 카드(verify:true)를 한 목록으로.
     categories = [{"slug": CAT_SLUG[norm(c)], "label": c, "norm": norm(c), "verify": False}
@@ -695,7 +741,8 @@ def main():
     }
     open(os.path.join(OUT_DIR, "manifest.json"), "w", encoding="utf-8").write(
         json.dumps(manifest, ensure_ascii=False, indent=2))
-    idx = INDEX_TEMPLATE.replace("__MANIFEST__", json.dumps(manifest, ensure_ascii=False))
+    # 인라인 <script>var M=... 주입 — 데이터 내 '<'를 <로 치환해 </script> 브레이크아웃 차단(H1).
+    idx = INDEX_TEMPLATE.replace("__MANIFEST__", json.dumps(manifest, ensure_ascii=False).replace("<", "\\u003c"))
     open(os.path.join(OUT_DIR, "index.html"), "w", encoding="utf-8").write(idx)
     print("manifest + index written. reviewers:", [r["name"] for r in reviewers])
 

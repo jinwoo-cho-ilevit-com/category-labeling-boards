@@ -296,16 +296,24 @@
   var SYNC=D.sync_url||'', reviewer='';var SB_URL=D.supabase_url||'',SB_KEY=D.supabase_key||'';
   var SHEET_REVIEWS=D.sheet_reviews||{};  // id -> [{ts,reviewer,tags,url,note}], read-only generation-time snapshot
   try{reviewer=localStorage.getItem('llmh_reviewer')||'';}catch(e){}
-  if(!reviewer&&D.reviewer_default)reviewer=D.reviewer_default;  // shard 파일별 프리필
+  if(D.reviewer_default)reviewer=D.reviewer_default;  // shard 파일별 프리필
   var sampById={};SAMPLES.forEach(function(s){sampById[String(s.id)]=s;});
   function setSyncStat(t,cls){var el=document.getElementById('syncstat');if(el){el.textContent=t;el.className='syncstat'+(cls?' '+cls:'');}}
   function vrec(id){var p=noteParts(id),s=sampById[String(id)];
     var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};
     if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}return rec;}
-function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id),sig=locSig(id);
-    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
-      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();SERVERSIG[String(id)]=sig;renderUnsynced();}else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})
-      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}
+function safeUrl(u){u=String(u||'').trim();return /^https?:\/\//i.test(u)?u:'';}
+function _postRec(rec){return fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)});}
+var INFLIGHT={},PENDING={};
+function pushOne(id,cb){id=String(id);if(!SB_URL||!SB_KEY||!reviewer){if(cb)cb(false);return;}
+    if(INFLIGHT[id]){PENDING[id]=true;if(cb)cb(null);return;}
+    INFLIGHT[id]=true;var rec=vrec(id),sig=locSig(id);
+    _postRec(rec).then(function(r){return r.ok;},function(){return false;})
+      .then(function(ok){INFLIGHT[id]=false;
+        if(ok&&locSig(id)===sig)SERVERSIG[id]=sig;
+        var again=PENDING[id]||(ok&&locSig(id)!==sig);PENDING[id]=false;
+        if(again){pushOne(id,cb);}else{renderUnsynced();if(cb)cb(ok);}});}
+function syncPush(id){pushOne(id,function(ok){if(ok===true){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();}else if(ok===false){setSyncStat('저장 실패(로컬 보관)','bad');}});}
 function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,PAR=8;
     var base=SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit='+PAGE+'&offset=';
     function gp(off,t){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}
@@ -322,16 +330,15 @@ function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,P
       var body=loc.body.trim()!==''?loc.body:sbody;
       var t=noteCombine(tags,url,picks,body);
       if(t.trim()!==''&&t!==noteGet(id)&&noteSet(id,t))n++;});
-      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}
+      if(n){dirty=false;try{renderCross();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}
       PULLED=true;renderUnsynced();}
-    wave(0).then(function(){apply(acc);}).catch(function(){setUnsyncErr();});}
+    wave(0).then(function(){apply(acc);}).catch(function(){PULLED=true;renderUnsynced();});}
 var SERVERSIG={},PULLED=false,bulkBusy=false;
 function sigOf(tags,url,picks,body){return (tags||[]).filter(Boolean).sort().join('|')+'##'+(url||'')+'##'+(picks||[]).filter(Boolean).sort().join('|')+'##'+(body||'');}
 function rjoin(a){return (a||[]).join('|').split('|');}
 function locSig(id){var p=noteParts(id);return sigOf(rjoin(p.tags),p.url,rjoin(p.gtPicks),p.body);}
 function locEmpty(id){var p=noteParts(id);return !((p.tags&&p.tags.length)||(p.gtPicks&&p.gtPicks.length)||(p.url&&p.url.trim())||(p.body&&p.body.trim()));}
 function unsyncedIds(){var out=[];for(var id in sampById){if(locEmpty(id))continue;if(SERVERSIG[String(id)]!==locSig(id))out.push(id);}return out;}
-function setUnsyncErr(){var el=document.getElementById('unsyncbar');if(!el)return;el.className='unsync';el.textContent='\u26a0 \ub3d9\uae30\ud654 \uc0c1\ud0dc \ud655\uc778 \uc2e4\ud328 \u2014 \uc0c8\ub85c\uace0\uce68 \uad8c\uc7a5';}
 function renderUnsynced(){var el=document.getElementById('unsyncbar');if(!el)return;
       if(!PULLED){el.className='unsync';el.textContent='\ub3d9\uae30\ud654 \ud655\uc778 \uc911\u2026';return;}
       var n=unsyncedIds().length;
@@ -349,15 +356,12 @@ function pushList(ids,attempt){if(attempt===0){if(bulkBusy)return;bulkBusy=true;
         setSyncStat('\uc800\uc7a5 \uc644\ub8cc '+ok+'\uac74'+(failed.length?(' / \uc2e4\ud328 '+failed.length):''),failed.length?'bad':'ok');
         if(failed.length){console.error('\uc800\uc7a5 \uc2e4\ud328 \uc0d8\ud50c:',failed.map(function(x){var s=sampById[String(x)];return {id:x,name:s&&s.name};}));}
         bulkBusy=false;renderUnsynced();return;}
-        var id=ids[i++],rec=vrec(id),sig=locSig(id),s=sampById[String(id)];
-        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
-          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=sig;}else{failed.push(id);try{r.text().then(function(t){console.error('\uc800\uc7a5 \uc2e4\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})
-          .catch(function(){failed.push(id);})
-          .then(function(){setSyncStat('\uc800\uc7a5 '+i+'/'+ids.length,'ok');step();});}
+        var id=ids[i++];
+        pushOne(id,function(res){if(res===true)ok++;else if(res===false)failed.push(id);setSyncStat('\uc800\uc7a5 '+i+'/'+ids.length,'ok');step();});}
       step();}
 function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;
   if(urgent){ids.forEach(function(id){var rec=vrec(id),sig=locSig(id);
-    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}
+    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok&&locSig(id)===sig)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}
   else{pushList(ids,0);}}
 setInterval(function(){autoFlush(false);},25000);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});
@@ -747,7 +751,7 @@ setTimeout(syncPull,0);
         srv.slice().reverse().map(function(rv){
           return '<div class="rvhist"><div class="meta">'+esc(rv.ts)+' · '+esc(rv.reviewer)+
             (rv.tags?rv.tags.split('|').map(function(t){return '<span class="tagbadge">'+esc(t.trim())+'</span>';}).join(''):'')+
-            (rv.url?' · <a href="'+escAttr(rv.url)+'" target="_blank" rel="noopener noreferrer">URL↗</a>':'')+
+            (rv.url?' · <a href="'+escAttr(safeUrl(rv.url))+'" target="_blank" rel="noopener noreferrer">URL↗</a>':'')+
             (rv.gt_candidates?rv.gt_candidates.split('|').map(function(l,i){l=l.trim();
               return '<span class="tagbadge">'+(i+1)+'순위 '+esc(l===NOT_IN_POOL?'후보에 없음':(leafDesc[l]||l))+'</span>';}).join(''):'')+
             '</div>'+(rv.note?'<div class="note">'+esc(rv.note)+'</div>':'')+'</div>';
@@ -775,7 +779,7 @@ setTimeout(syncPull,0);
     function save(){var ok=noteSave(s.id,curTags,urlEl?urlEl.value:parts.url,curGtPicks,ta?ta.value:parts.body);
       if(hintEl)hintEl.textContent=ok?'저장됨 ✓':'저장 실패 — 브라우저 저장소 사용 불가';
       updateTagSum();refilter();scheduleSync(s.id);}
-    function paintUrl(){if(!urlOpen)return;var u=(urlEl&&urlEl.value||'').trim();urlOpen.href=u;urlOpen.style.display=u?'':'none';}
+    function paintUrl(){if(!urlOpen)return;var u=(urlEl&&urlEl.value||'').trim();urlOpen.href=safeUrl(u)||'#';urlOpen.style.display=u?'':'none';}
     function paintTags(){if(!tagrow)return;tagrow.innerHTML=TAGS.map(function(t){var on=curTags.indexOf(t)>=0;
       return '<button type="button" class="tagchip'+(on?' on':'')+'" data-tag="'+escAttr(t)+'">'+esc(t)+'</button>';}).join('');}
     paintTags();
@@ -849,7 +853,7 @@ setTimeout(syncPull,0);
       setSyncStat(reviewer?'시트 자동저장 ON':'이름 입력 필요(로컬만 저장)',reviewer?'ok':'bad');});
     document.getElementById('syncAll').addEventListener('click',function(){
       if(!reviewer){alert('검수자 이름을 먼저 입력해 주세요');return;}
-      var ids=allNoteIds().filter(function(id){return hasNote(id);});ids.forEach(syncPush);
+      var ids=allNoteIds().filter(function(id){return hasNote(id)&&sampById[String(id)];});ids.forEach(syncPush);
       setSyncStat(ids.length+'건 저장됨 '+nowHM(),'ok');});
     setSyncStat(reviewer?'시트 자동저장 ON':'이름 입력 필요(로컬만 저장)',reviewer?'ok':'bad');
   }
