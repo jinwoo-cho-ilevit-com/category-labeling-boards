@@ -124,20 +124,24 @@ NEW_SYNCPUSH = (
     "function vrec(id){var p=noteParts(id),s=sampById[String(id)];\n"
     "    var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
     "    if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}return rec;}\n"
-    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id);\n"
+    # sig는 '전송 시점' 로컬 시그니처를 캡처 — 응답 시점 locSig(id)로 찍으면 왕복 중 편집분이
+    # 서버 반영 없이 '저장됨'으로 오판돼 유실될 수 있음(재push 안 됨). 전송값 기준으로 기록.
+    "function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id),sig=locSig(id);\n"
     "    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',"
     "headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',"
     "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
     # 저장 성공 시 서버 시그니처 갱신 -> 미동기화 배지가 즉시 '모두 저장됨'으로.
     "      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();"
-    "SERVERSIG[String(id)]=locSig(id);renderUnsynced();}"
+    "SERVERSIG[String(id)]=sig;renderUnsynced();}"
     "else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})\n"
     "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}\n"
     # syncPull: 로드 시 서버(reviews)에서 본인 리뷰를 받아 로컬이 빈 샘플만 복원.
     # 로컬 입력이 항상 우선(덮어쓰기 없음) — 브라우저 교체/초기화 시 자동 복구용.
     "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,PAR=8;\n"
     "    var base=SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit='+PAGE+'&offset=';\n"
-    "    function gp(off){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){return r.ok?r.json():[];});}\n"
+    # HTTP 오류(429/5xx)는 빈 페이지로 오인하면 wave가 조기 종료돼 부분 로드가 무음 발생 →
+    # 오류는 최대 2회 재시도 후 throw(→Promise.all reject→setUnsyncErr). 정상 빈 배열만 종료 신호.
+    "    function gp(off,t){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}\n"
     # 페이지를 PAR개씩 병렬 요청(wave) — 순차 왕복 제거. 모든 페이지가 꽉 찼으면 다음 wave.
     "    function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));\n"
     "      return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}\n"
@@ -159,7 +163,7 @@ NEW_SYNCPUSH = (
     "      PULLED=true;renderUnsynced();}\n"
     "    wave(0).then(function(){apply(acc);}).catch(function(){setUnsyncErr();});}\n"
     # --- 미동기화 안전장치: 로컬(브라우저)에만 있고 서버에 반영 안 된 검수 감지 + 일괄 저장 ---
-    "var SERVERSIG={},PULLED=false;\n"
+    "var SERVERSIG={},PULLED=false,bulkBusy=false;\n"
     # 로컬/서버 시그니처를 동일 정규화(빈값 제거+정렬)로 비교 — 순서/빈태그/구분자 차이 오탐 제거.
     "function sigOf(tags,url,picks,body){return (tags||[]).filter(Boolean).sort().join('|')+'##'+(url||'')+'##'+(picks||[]).filter(Boolean).sort().join('|')+'##'+(body||'');}\n"
     # rjoin: 로컬 배열을 서버 왕복(join '|' -> split '|')과 동일하게 정규화 -> '|' 포함 값도 정합.
@@ -180,24 +184,25 @@ NEW_SYNCPUSH = (
     "      console.warn('\\ubbf8\\uc800\\uc7a5 \\ubaa9\\ub85d('+ids.length+'):',list);try{alert('\\ubbf8\\uc800\\uc7a5 '+ids.length+'\\uac74\\n\\n'+list.join('\\n'));}catch(e){}}\n"
     # 전체 저장: 실패분 최대 2회 자동 재시도 + 실패 샘플/서버오류 콘솔 기록.
     "function pushAllUnsynced(){var ids=unsyncedIds();if(!ids.length)return;pushList(ids,0);}\n"
-    "function pushList(ids,attempt){var i=0,ok=0,failed=[];\n"
+    # bulkBusy: 자동/수동 전체저장 재진입 방지(25s 주기가 진행 중 pushList를 중복 실행하지 않게).
+    "function pushList(ids,attempt){if(attempt===0){if(bulkBusy)return;bulkBusy=true;}var i=0,ok=0,failed=[];\n"
     "      var b=document.getElementById('pushall');if(b){b.disabled=true;b.textContent='\\uc800\\uc7a5 \\uc911\\u2026';}\n"
     "      function step(){if(i>=ids.length){\n"
     "        if(failed.length&&attempt<2){setSyncStat('\\uc7ac\\uc2dc\\ub3c4 '+failed.length+'\\uac74\\u2026','');setTimeout(function(){pushList(failed,attempt+1);},900);return;}\n"
     "        setSyncStat('\\uc800\\uc7a5 \\uc644\\ub8cc '+ok+'\\uac74'+(failed.length?(' / \\uc2e4\\ud328 '+failed.length):''),failed.length?'bad':'ok');\n"
     "        if(failed.length){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328 \\uc0d8\\ud50c:',failed.map(function(x){var s=sampById[String(x)];return {id:x,name:s&&s.name};}));}\n"
-    "        renderUnsynced();return;}\n"
-    "        var id=ids[i++],rec=vrec(id),s=sampById[String(id)];\n"
+    "        bulkBusy=false;renderUnsynced();return;}\n"
+    "        var id=ids[i++],rec=vrec(id),sig=locSig(id),s=sampById[String(id)];\n"
     "        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
-    "          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{failed.push(id);try{r.text().then(function(t){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})\n"
+    "          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=sig;}else{failed.push(id);try{r.text().then(function(t){console.error('\\uc800\\uc7a5 \\uc2e4\\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})\n"
     "          .catch(function(){failed.push(id);})\n"
     "          .then(function(){setSyncStat('\\uc800\\uc7a5 '+i+'/'+ids.length,'ok');step();});}\n"
     "      step();}\n"
     # --- 자동 전체저장: 주기(25s) + 창 숨김/이탈 시 미저장분 자동 반영(유실 방지 강화) ---
     "function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;\n"
-    "  if(urgent){ids.forEach(function(id){var rec=vrec(id);\n"
+    "  if(urgent){ids.forEach(function(id){var rec=vrec(id),sig=locSig(id);\n"
     # keepalive: 페이지 이탈 중에도 요청 완주(sendBeacon은 커스텀 헤더 불가라 fetch keepalive 사용).
-    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=locSig(id);}).catch(function(){});}catch(e){}});}\n"
+    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}\n"
     "  else{pushList(ids,0);}}\n"
     "setInterval(function(){autoFlush(false);},25000);\n"
     "document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});\n"
@@ -388,7 +393,8 @@ render();  // 먼저 0%로 그림
 (function loadProgress(){
   var acc=[], PAGE=1000, PAR=8;
   var base=SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp&gt_candidates=neq.&order=row_id.asc&limit='+PAGE+'&offset=';
-  function gp(off){return fetch(base+off,{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}}).then(function(r){return r.ok?r.json():[];});}
+  // HTTP 오류는 빈 페이지로 오인 시 wave 조기 종료(부분 집계) → 최대 2회 재시도 후 throw(→catch 배너).
+  function gp(off,t){return fetch(base+off,{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}
   function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));
     return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}
   wave(0).then(function(){DONE=bucket(acc);render();})

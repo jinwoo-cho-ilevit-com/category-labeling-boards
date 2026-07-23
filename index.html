@@ -132,7 +132,8 @@ render();  // 먼저 0%로 그림
 (function loadProgress(){
   var acc=[], PAGE=1000, PAR=8;
   var base=SB.url+'/rest/v1/reviews?select=reviewer,sample_id,grp&gt_candidates=neq.&order=row_id.asc&limit='+PAGE+'&offset=';
-  function gp(off){return fetch(base+off,{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}}).then(function(r){return r.ok?r.json():[];});}
+  // HTTP 오류는 빈 페이지로 오인 시 wave 조기 종료(부분 집계) → 최대 2회 재시도 후 throw(→catch 배너).
+  function gp(off,t){return fetch(base+off,{headers:{apikey:SB.key,Authorization:'Bearer '+SB.key}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}
   function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));
     return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}
   wave(0).then(function(){DONE=bucket(acc);render();})

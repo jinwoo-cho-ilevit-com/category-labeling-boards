@@ -302,13 +302,13 @@
   function vrec(id){var p=noteParts(id),s=sampById[String(id)];
     var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};
     if(s){rec.grp=(s.grp_key||s.group||'');rec.name=s.name||'';rec.gt=s.gt||'';}return rec;}
-function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id);
+function syncPush(id){if(!SB_URL||!SB_KEY||!reviewer)return;var rec=vrec(id),sig=locSig(id);
     fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
-      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();SERVERSIG[String(id)]=locSig(id);renderUnsynced();}else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})
+      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();SERVERSIG[String(id)]=sig;renderUnsynced();}else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})
       .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}
 function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,PAR=8;
     var base=SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit='+PAGE+'&offset=';
-    function gp(off){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){return r.ok?r.json():[];});}
+    function gp(off,t){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}
     function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));
       return Promise.all(rq).then(function(ps){var full=true;ps.forEach(function(p){acc=acc.concat(p);if(p.length<PAGE)full=false;});if(full)return wave(start+PAR);});}
     function apply(rows){var n=0;rows.forEach(function(x){var id=String(x.sample_id);
@@ -325,7 +325,7 @@ function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,P
       if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}
       PULLED=true;renderUnsynced();}
     wave(0).then(function(){apply(acc);}).catch(function(){setUnsyncErr();});}
-var SERVERSIG={},PULLED=false;
+var SERVERSIG={},PULLED=false,bulkBusy=false;
 function sigOf(tags,url,picks,body){return (tags||[]).filter(Boolean).sort().join('|')+'##'+(url||'')+'##'+(picks||[]).filter(Boolean).sort().join('|')+'##'+(body||'');}
 function rjoin(a){return (a||[]).join('|').split('|');}
 function locSig(id){var p=noteParts(id);return sigOf(rjoin(p.tags),p.url,rjoin(p.gtPicks),p.body);}
@@ -342,22 +342,22 @@ function renderUnsynced(){var el=document.getElementById('unsyncbar');if(!el)ret
 function showUnsyncList(){var ids=unsyncedIds();var list=ids.map(function(x){var s=sampById[String(x)];return (s&&s.name?s.name:'(?)')+'  |  '+x;});
       console.warn('\ubbf8\uc800\uc7a5 \ubaa9\ub85d('+ids.length+'):',list);try{alert('\ubbf8\uc800\uc7a5 '+ids.length+'\uac74\n\n'+list.join('\n'));}catch(e){}}
 function pushAllUnsynced(){var ids=unsyncedIds();if(!ids.length)return;pushList(ids,0);}
-function pushList(ids,attempt){var i=0,ok=0,failed=[];
+function pushList(ids,attempt){if(attempt===0){if(bulkBusy)return;bulkBusy=true;}var i=0,ok=0,failed=[];
       var b=document.getElementById('pushall');if(b){b.disabled=true;b.textContent='\uc800\uc7a5 \uc911\u2026';}
       function step(){if(i>=ids.length){
         if(failed.length&&attempt<2){setSyncStat('\uc7ac\uc2dc\ub3c4 '+failed.length+'\uac74\u2026','');setTimeout(function(){pushList(failed,attempt+1);},900);return;}
         setSyncStat('\uc800\uc7a5 \uc644\ub8cc '+ok+'\uac74'+(failed.length?(' / \uc2e4\ud328 '+failed.length):''),failed.length?'bad':'ok');
         if(failed.length){console.error('\uc800\uc7a5 \uc2e4\ud328 \uc0d8\ud50c:',failed.map(function(x){var s=sampById[String(x)];return {id:x,name:s&&s.name};}));}
-        renderUnsynced();return;}
-        var id=ids[i++],rec=vrec(id),s=sampById[String(id)];
+        bulkBusy=false;renderUnsynced();return;}
+        var id=ids[i++],rec=vrec(id),sig=locSig(id),s=sampById[String(id)];
         fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})
-          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{failed.push(id);try{r.text().then(function(t){console.error('\uc800\uc7a5 \uc2e4\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})
+          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=sig;}else{failed.push(id);try{r.text().then(function(t){console.error('\uc800\uc7a5 \uc2e4\ud328',id,s&&s.name,r.status,t);});}catch(e){}}})
           .catch(function(){failed.push(id);})
           .then(function(){setSyncStat('\uc800\uc7a5 '+i+'/'+ids.length,'ok');step();});}
       step();}
 function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;
-  if(urgent){ids.forEach(function(id){var rec=vrec(id);
-    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=locSig(id);}).catch(function(){});}catch(e){}});}
+  if(urgent){ids.forEach(function(id){var rec=vrec(id),sig=locSig(id);
+    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}
   else{pushList(ids,0);}}
 setInterval(function(){autoFlush(false);},25000);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});
