@@ -105,9 +105,11 @@ NEW_SYNCPUSH = (
     "    fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',"
     "headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',"
     "Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
-    "      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();}"
-    "else{setSyncStat('저장 실패(로컬 보관)','bad');}})\n"
-    "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');});}\n"
+    # 저장 성공 시 서버 시그니처 갱신 -> 미동기화 배지가 즉시 '모두 저장됨'으로.
+    "      .then(function(r){if(r.ok){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();"
+    "SERVERSIG[String(id)]=locSig(id);renderUnsynced();}"
+    "else{setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();}})\n"
+    "      .catch(function(){setSyncStat('저장 실패(로컬 보관)','bad');renderUnsynced();});}\n"
     # syncPull: 로드 시 서버(reviews)에서 본인 리뷰를 받아 로컬이 빈 샘플만 복원.
     # 로컬 입력이 항상 우선(덮어쓰기 없음) — 브라우저 교체/초기화 시 자동 복구용.
     "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[];\n"
@@ -116,19 +118,48 @@ NEW_SYNCPUSH = (
     "{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}})\n"
     "      .then(function(r){return r.ok?r.json():[];})\n"
     "      .then(function(rows){acc=acc.concat(rows);if(rows.length===1000){page(off+1000);}else{apply(acc);}})\n"
-    "      .catch(function(){});}\n"
+    "      .catch(function(){setUnsyncErr();});}\n"
     # 필드 단위 병합: 로컬 값이 있는 필드는 유지, 빈 필드(판정/URL/GT후보/메모)만 서버 값으로 보충.
     # 로컬이 완전히 빈 샘플은 자연히 전체가 서버 값으로 채워진다(구버전 동작 포함).
+    # 동시에 각 샘플의 서버 시그니처(SERVERSIG)를 기록해 '로컬만 있고 서버엔 없는' 미동기화분을 판별.
     "    function apply(rows){var n=0;rows.forEach(function(x){var id=String(x.sample_id);\n"
-    "      if(!sampById[id])return;var loc=noteParts(id);\n"
-    "      var tags=loc.tags.length?loc.tags:String(x.tags||'').split('|').filter(Boolean);\n"
-    "      var picks=(loc.gtPicks&&loc.gtPicks.length)?loc.gtPicks:String(x.gt_candidates||'').split('|').filter(Boolean);\n"
-    "      var url=(loc.url&&loc.url.trim())?loc.url:String(x.url||'');\n"
-    "      var body=loc.body.trim()!==''?loc.body:String(x.note||'');\n"
+    "      if(!sampById[id])return;\n"
+    "      var stags=String(x.tags||'').split('|').filter(Boolean),spicks=String(x.gt_candidates||'').split('|').filter(Boolean),surl=String(x.url||''),sbody=String(x.note||'');\n"
+    "      SERVERSIG[id]=sigOf(stags,surl,spicks,sbody);\n"
+    "      var loc=noteParts(id);\n"
+    "      var tags=loc.tags.length?loc.tags:stags;\n"
+    "      var picks=(loc.gtPicks&&loc.gtPicks.length)?loc.gtPicks:spicks;\n"
+    "      var url=(loc.url&&loc.url.trim())?loc.url:surl;\n"
+    "      var body=loc.body.trim()!==''?loc.body:sbody;\n"
     "      var t=noteCombine(tags,url,picks,body);\n"
     "      if(t.trim()!==''&&t!==noteGet(id)&&noteSet(id,t))n++;});\n"
-    "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}}\n"
+    "      if(n){dirty=false;try{refilter();}catch(e){}try{updateTagSum();}catch(e){}setSyncStat('서버에서 '+n+'건 복원/보강','ok');}\n"
+    "      PULLED=true;renderUnsynced();}\n"
     "    page(0);}\n"
+    # --- 미동기화 안전장치: 로컬(브라우저)에만 있고 서버에 반영 안 된 검수 감지 + 일괄 저장 ---
+    "var SERVERSIG={},PULLED=false;\n"
+    "function sigOf(tags,url,picks,body){return (tags||[]).slice().sort().join('|')+'##'+(url||'')+'##'+(picks||[]).slice().sort().join('|')+'##'+(body||'');}\n"
+    "function locSig(id){var p=noteParts(id);return sigOf(p.tags,p.url,p.gtPicks,p.body);}\n"
+    "function locEmpty(id){var p=noteParts(id);return !((p.tags&&p.tags.length)||(p.gtPicks&&p.gtPicks.length)||(p.url&&p.url.trim())||(p.body&&p.body.trim()));}\n"
+    "function unsyncedIds(){var out=[];for(var id in sampById){if(locEmpty(id))continue;if(SERVERSIG[String(id)]!==locSig(id))out.push(id);}return out;}\n"
+    "function setUnsyncErr(){var el=document.getElementById('unsyncbar');if(!el)return;el.className='unsync';el.textContent='\\u26a0 \\ub3d9\\uae30\\ud654 \\uc0c1\\ud0dc \\ud655\\uc778 \\uc2e4\\ud328 \\u2014 \\uc0c8\\ub85c\\uace0\\uce68 \\uad8c\\uc7a5';}\n"
+    "function renderUnsynced(){var el=document.getElementById('unsyncbar');if(!el)return;\n"
+    "      if(!PULLED){el.className='unsync';el.textContent='\\ub3d9\\uae30\\ud654 \\ud655\\uc778 \\uc911\\u2026';return;}\n"
+    "      var n=unsyncedIds().length;\n"
+    "      if(!n){el.className='unsync ok';el.textContent='\\u2714 \\ubaa8\\ub450 \\uc800\\uc7a5\\ub428';return;}\n"
+    "      el.className='unsync warn';el.innerHTML='\\u26a0 \\ubbf8\\uc800\\uc7a5 <b>'+n+'</b>\\uac74 (\\uc774 \\ube0c\\ub77c\\uc6b0\\uc800\\uc5d0\\ub9cc \\uc788\\uc74c) <button id=\"pushall\">\\uc804\\uccb4 \\uc800\\uc7a5</button>';\n"
+    "      var b=document.getElementById('pushall');if(b)b.onclick=pushAllUnsynced;}\n"
+    "function pushAllUnsynced(){var ids=unsyncedIds();if(!ids.length)return;var i=0,ok=0,fail=0;\n"
+    "      var b=document.getElementById('pushall');if(b){b.disabled=true;b.textContent='\\uc800\\uc7a5 \\uc911\\u2026';}\n"
+    "      function step(){if(i>=ids.length){setSyncStat('\\uc804\\uccb4 \\uc800\\uc7a5 \\uc644\\ub8cc '+ok+'\\uac74'+(fail?(' / \\uc2e4\\ud328 '+fail):''),fail?'bad':'ok');renderUnsynced();return;}\n"
+    "        var id=ids[i++],p=noteParts(id),s=sampById[String(id)];\n"
+    "        var rec={reviewer:reviewer,sample_id:String(id),tags:p.tags.join('|'),url:p.url,note:p.body,gt_candidates:(p.gtPicks||[]).join('|')};\n"
+    "        if(s){rec.grp=s.group||'';rec.name=s.name||'';rec.gt=s.gt||'';}\n"
+    "        fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)})\n"
+    "          .then(function(r){if(r.ok){ok++;SERVERSIG[String(id)]=locSig(id);}else{fail++;}})\n"
+    "          .catch(function(){fail++;})\n"
+    "          .then(function(){setSyncStat('\\uc804\\uccb4 \\uc800\\uc7a5 '+i+'/'+ids.length,'ok');step();});}\n"
+    "      step();}\n"
     "setTimeout(syncPull,0);"  # 스크립트 초기화(reviewer/sampById/렌더) 완료 후 실행
 )
 SYNCVAR_OLD = "var SYNC=D.sync_url||'', reviewer='';"
@@ -141,6 +172,16 @@ CATNAV_CSS = (
     "border-radius:7px}.catnav a:hover{background:var(--surface-2)}"
     ".catnav .cn-cur{font-weight:700;color:var(--ink)}"
     ".catnav .cn-ord{font-family:var(--mono);color:var(--ink-faint)}"
+    # 미동기화 배지(우하단 고정) — 저장 유실 방지 안전장치
+    "#unsyncbar{position:fixed;right:14px;bottom:14px;z-index:9999;font-size:13px;padding:8px 12px;"
+    "border-radius:10px;box-shadow:0 3px 12px rgba(0,0,0,.18);border:1px solid var(--line);"
+    "background:var(--surface);color:var(--ink-soft)}"
+    "#unsyncbar.ok{color:var(--ok);border-color:var(--ok)}"
+    "#unsyncbar.warn{color:#8a6d00;background:#fff8e1;border-color:#e0b000}"
+    "@media(prefers-color-scheme:dark){#unsyncbar.warn{background:#3a2f0a;color:#f0d060;border-color:#8a6d00}}"
+    "#unsyncbar button{margin-left:8px;cursor:pointer;border:1px solid currentColor;background:transparent;"
+    "color:inherit;border-radius:7px;padding:3px 10px;font-weight:700;font-size:12px}"
+    "#unsyncbar button:disabled{opacity:.6;cursor:default}"
 )
 
 def patch_html(raw_html: str, cat_norm: str, order_idx: int, prev_slug, next_slug) -> str:
@@ -166,7 +207,9 @@ def patch_html(raw_html: str, cat_norm: str, order_idx: int, prev_slug, next_slu
         parts.append(f'<a href="{next_slug}.html">다음 ▶</a>')
     nav = '<div class="catnav">' + "".join(parts) + "</div>"
     anchor = '<div class="chips" id="chips"></div>'
-    h = h.replace(anchor, anchor + "\n    " + nav, 1)
+    # 네비바 + 미동기화 배지(우하단 고정) 주입
+    unsyncbar = '<div id="unsyncbar" class="unsync"></div>'
+    h = h.replace(anchor, anchor + "\n    " + nav + "\n    " + unsyncbar, 1)
     return h
 
 INDEX_TEMPLATE = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
@@ -209,7 +252,8 @@ table.team td.l,table.team th.l{text-align:left;font-family:var(--mono)}
 <a class="guide" href="onboarding.html" target="_blank" rel="noopener">📖 GT 복수정답 검수 온보딩 가이드</a>
 <div class="who" id="who"><span class="lbl">검수자</span></div>
 <div id="mine"><div class="empty">위에서 본인 이름을 선택하세요.</div></div>
-<div id="teamwrap" hidden><h2>팀 전체 진행률</h2><div id="team"></div></div>
+<div id="rvsumwrap" hidden><h2>검수자별 진행률</h2><div id="rvsum"></div></div>
+<div id="teamwrap" hidden><h2>카테고리별 진행률</h2><div id="team"></div></div>
 <div class="foot" id="foot"></div>
 </div>
 <script>
@@ -247,7 +291,8 @@ function bucket(rows){
 }
 function cnt(rvslug,catslug){var o=DONE[rvslug]&&DONE[rvslug][catslug];return o?Object.keys(o).length:0;}
 
-function render(){
+function render(){renderMine();renderReviewerSummary();renderTeam();}
+function renderMine(){
   var mine=document.getElementById('mine');
   if(!curSlug){mine.innerHTML='<div class="empty">위에서 본인 이름을 선택하세요.</div>';return;}
   var rv=RVS.filter(function(r){return r.slug===curSlug;})[0];
@@ -270,7 +315,21 @@ function render(){
       '<div class="cnum"><b>'+done+'</b> / '+tot+'<br>'+pctv+'%</div>';
     mine.appendChild(a);
   });
-  renderTeam();
+}
+// 검수자별 진행률(전체 합산) — 선택 여부와 무관하게 항상 표시
+function renderReviewerSummary(){
+  var w=document.getElementById('rvsumwrap');w.hidden=false;
+  var h='<table class="team"><thead><tr><th class="l">검수자</th><th>완료</th><th>전체</th><th>남음</th><th style="width:130px">진행률</th></tr></thead><tbody>';
+  RVS.forEach(function(r){
+    var dn=0,tt=0;
+    CATS.forEach(function(c){var tot=r.totals[c.slug]||0;if(!tot)return;var d=Math.min(cnt(r.slug,c.slug),tot);dn+=d;tt+=tot;});
+    var pct=tt?Math.round(dn/tt*100):0, full=(tt>0&&dn>=tt);
+    var me=(r.slug===curSlug)?' style="font-weight:700"':'';
+    h+='<tr'+me+'><td class="l">'+r.name+'</td><td>'+dn+'</td><td>'+tt+'</td><td>'+(tt-dn)+'</td>'+
+       '<td><div class="cbarwrap"><div class="cbar'+(full?' full':'')+'" style="width:'+pct+'%"></div></div>'+
+       '<span class="hint">'+pct+'%</span></td></tr>';
+  });
+  h+='</tbody></table>';document.getElementById('rvsum').innerHTML=h;
 }
 function renderTeam(){
   var tw=document.getElementById('teamwrap');tw.hidden=false;
