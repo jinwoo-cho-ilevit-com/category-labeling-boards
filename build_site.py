@@ -135,8 +135,11 @@ NEW_SYNCPUSH = (
     "    if(INFLIGHT[id]){PENDING[id]=true;if(cb)cb(null);return;}\n"
     "    INFLIGHT[id]=true;var rec=vrec(id),sig=locSig(id);\n"
     "    _postRec(rec).then(function(r){return r.ok;},function(){return false;})\n"
+    # 직렬화(id별 in-flight 1건)라 성공 시 서버 상태=전송값. SERVERSIG=전송 sig가 곧 '서버 실제
+    # 상태' 불변식 — locSig===sig 가드를 걸면 A→B→A 되돌림+부분실패 때 SERVERSIG가 과거값으로
+    # 남아 false-green(서버는 B인데 '저장됨') 발생. 전송 후 편집분은 again으로 재push해 수렴.
     "      .then(function(ok){INFLIGHT[id]=false;\n"
-    "        if(ok&&locSig(id)===sig)SERVERSIG[id]=sig;\n"
+    "        if(ok)SERVERSIG[id]=sig;\n"
     "        var again=PENDING[id]||(ok&&locSig(id)!==sig);PENDING[id]=false;\n"
     "        if(again){pushOne(id,cb);}else{renderUnsynced();if(cb)cb(ok);}});}\n"
     "function syncPush(id){pushOne(id,function(ok){if(ok===true){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();}else if(ok===false){setSyncStat('저장 실패(로컬 보관)','bad');}});}\n"
@@ -145,7 +148,7 @@ NEW_SYNCPUSH = (
     "function syncPull(){if(!SB_URL||!SB_KEY||!reviewer)return;var acc=[],PAGE=1000,PAR=8;\n"
     "    var base=SB_URL+'/rest/v1/reviews?select=sample_id,tags,url,note,gt_candidates&reviewer=eq.'+encodeURIComponent(reviewer)+'&order=sample_id.asc&limit='+PAGE+'&offset=';\n"
     # HTTP 오류(429/5xx)는 빈 페이지로 오인하면 wave가 조기 종료돼 부분 로드가 무음 발생 →
-    # 오류는 최대 2회 재시도 후 throw(→Promise.all reject→setUnsyncErr). 정상 빈 배열만 종료 신호.
+    # 오류는 최대 2회 재시도 후 throw(→Promise.all reject→catch에서 PULLED=true·배지). 정상 빈 배열만 종료 신호.
     "    function gp(off,t){return fetch(base+off,{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY}}).then(function(r){if(r.ok)return r.json();throw r.status;}).catch(function(e){if((t||0)>=2)throw e;return new Promise(function(z){setTimeout(z,500);}).then(function(){return gp(off,(t||0)+1);});});}\n"
     # 페이지를 PAR개씩 병렬 요청(wave) — 순차 왕복 제거. 모든 페이지가 꽉 찼으면 다음 wave.
     "    function wave(start){var rq=[],i;for(i=0;i<PAR;i++)rq.push(gp((start+i)*PAGE));\n"
@@ -204,9 +207,11 @@ NEW_SYNCPUSH = (
     "      step();}\n"
     # --- 자동 전체저장: 주기(25s) + 창 숨김/이탈 시 미저장분 자동 반영(유실 방지 강화) ---
     "function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;\n"
-    "  if(urgent){ids.forEach(function(id){var rec=vrec(id),sig=locSig(id);\n"
+    # INFLIGHT[id]는 pushOne이 이미 전송 중 → keepalive로 다른 값을 또 보내면 동일 id 동시전송
+    # (서버 순서 역전 유실) → skip. 미전송분만 keepalive(로컬은 유지되어 다음 로드에서 재검출·재push).
+    "  if(urgent){ids.forEach(function(id){if(INFLIGHT[String(id)])return;var rec=vrec(id),sig=locSig(id);\n"
     # keepalive: 페이지 이탈 중에도 요청 완주(sendBeacon은 커스텀 헤더 불가라 fetch keepalive 사용).
-    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok&&locSig(id)===sig)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}\n"
+    "    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}\n"
     "  else{pushList(ids,0);}}\n"
     "setInterval(function(){autoFlush(false);},25000);\n"
     "document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});\n"

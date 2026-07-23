@@ -310,7 +310,7 @@ function pushOne(id,cb){id=String(id);if(!SB_URL||!SB_KEY||!reviewer){if(cb)cb(f
     INFLIGHT[id]=true;var rec=vrec(id),sig=locSig(id);
     _postRec(rec).then(function(r){return r.ok;},function(){return false;})
       .then(function(ok){INFLIGHT[id]=false;
-        if(ok&&locSig(id)===sig)SERVERSIG[id]=sig;
+        if(ok)SERVERSIG[id]=sig;
         var again=PENDING[id]||(ok&&locSig(id)!==sig);PENDING[id]=false;
         if(again){pushOne(id,cb);}else{renderUnsynced();if(cb)cb(ok);}});}
 function syncPush(id){pushOne(id,function(ok){if(ok===true){dirty=false;setSyncStat('저장 '+nowHM(),'ok');updateTagSum();}else if(ok===false){setSyncStat('저장 실패(로컬 보관)','bad');}});}
@@ -360,8 +360,8 @@ function pushList(ids,attempt){if(attempt===0){if(bulkBusy)return;bulkBusy=true;
         pushOne(id,function(res){if(res===true)ok++;else if(res===false)failed.push(id);setSyncStat('\uc800\uc7a5 '+i+'/'+ids.length,'ok');step();});}
       step();}
 function autoFlush(urgent){if(!PULLED||!SB_URL||!SB_KEY||!reviewer)return;var ids=unsyncedIds();if(!ids.length)return;
-  if(urgent){ids.forEach(function(id){var rec=vrec(id),sig=locSig(id);
-    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok&&locSig(id)===sig)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}
+  if(urgent){ids.forEach(function(id){if(INFLIGHT[String(id)])return;var rec=vrec(id),sig=locSig(id);
+    try{fetch(SB_URL+'/rest/v1/reviews?on_conflict=reviewer,sample_id',{method:'POST',keepalive:true,headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rec)}).then(function(r){if(r.ok)SERVERSIG[String(id)]=sig;}).catch(function(){});}catch(e){}});}
   else{pushList(ids,0);}}
 setInterval(function(){autoFlush(false);},25000);
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')autoFlush(true);});
