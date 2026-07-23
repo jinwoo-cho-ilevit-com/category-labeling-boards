@@ -460,6 +460,26 @@ def load_verify_sources():
     return out
 
 
+def _spread_chunks(tuples):
+    """다청크 phase(예: 패션렌즈 4청크)의 청크들을 단일청크 카드들 사이에 균등 간격으로 배치.
+    입력: [(phase, chunk, nchunks), ...] (phase 우선순위·청크 순). 출력: 재배열된 동일 리스트.
+    같은 phase의 큰 청크들이 연속으로 붙지 않도록 전체 길이에 균등 분산(간격=n/청크수, 가운데 정렬)."""
+    spread = [t for t in tuples if t[2] > 1]   # nchunks>1 (분산 대상)
+    fill = [t for t in tuples if t[2] == 1]    # 단일청크 (사이를 채움)
+    if not spread:
+        return list(tuples)
+    n = len(tuples)
+    step = n / len(spread)
+    pos_of = {int(i * step + step / 2): spread[i] for i in range(len(spread))}  # 간격>=1 → 위치 유일
+    out, fi = [], 0
+    for pos in range(n):
+        if pos in pos_of:
+            out.append(pos_of[pos])
+        else:
+            out.append(fill[fi]); fi += 1
+    return out
+
+
 def plan_verify(verify_by_rev):
     """검증 샘플을 phase(카테고리)별로 묶어 VERIFY_CHUNK 단위 카드로 분할한다.
 
@@ -480,19 +500,25 @@ def plan_verify(verify_by_rev):
                 maxcnt[ph] = n
     phase_order = sorted(tot, key=lambda p: (-tot[p], p))
 
-    verify_cats = []
-    slug_of = {}  # (phase, chunk) -> slug
-    vi = 0
+    # phase 우선순위대로 (phase, chunk, nchunks) 나열 후, 다청크 phase(패션렌즈 4청크 등)의
+    # 청크들을 단일청크 카드 사이에 균등 간격으로 흩어 배치(연속 배치 방지). slug는 최종
+    # 표시 순서대로 cv1..cvN 부여 — grp_key(집계키)는 phase::chunk라 slug 순서와 무관해 안전.
+    tuples = []
     for ph in phase_order:
         nch = max(1, math.ceil(maxcnt[ph] / VERIFY_CHUNK))
         for ci in range(1, nch + 1):
-            vi += 1
-            slug = f"cv{vi}"
-            label = ph + (f" ({ci}/{nch})" if nch > 1 else "")  # 순수 카테고리명(+분할 표기)
-            gk = _vgrpkey(ph, ci)
-            slug_of[(ph, ci)] = slug
-            verify_cats.append({"slug": slug, "label": label, "norm": norm(gk),
-                                "grp_key": gk, "phase": ph, "chunk": ci, "nchunks": nch})
+            tuples.append((ph, ci, nch))
+    ordered = _spread_chunks(tuples)
+
+    verify_cats = []
+    slug_of = {}  # (phase, chunk) -> slug
+    for vi, (ph, ci, nch) in enumerate(ordered, 1):
+        slug = f"cv{vi}"
+        label = ph + (f" ({ci}/{nch})" if nch > 1 else "")  # 순수 카테고리명(+분할 표기)
+        gk = _vgrpkey(ph, ci)
+        slug_of[(ph, ci)] = slug
+        verify_cats.append({"slug": slug, "label": label, "norm": norm(gk),
+                            "grp_key": gk, "phase": ph, "chunk": ci, "nchunks": nch})
 
     per_rev = {}
     for rev, samples in verify_by_rev.items():
