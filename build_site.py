@@ -8,8 +8,9 @@
 """
 import json, re, glob, os, collections, html as _html, shutil
 
-SRC_DIR = "/Users/jwcho/Downloads/temp-2"
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))  # build_site.py가 있는 저장소(하드코딩 경로 제거)
+# 슬림 빌드 소스(base64 제거, ~11MB×4)를 저장소에 커밋 — 외부 휘발성 Downloads/temp-2 의존 제거.
+SRC_DIR = os.path.join(OUT_DIR, "board_source")
 
 SUPABASE_URL = "https://qnhwcwsizommxuqfpalo.supabase.co"
 SUPABASE_KEY = "sb_publishable_Ss861mkQyztCl_CAtAbvmQ_ecG0fZDa"
